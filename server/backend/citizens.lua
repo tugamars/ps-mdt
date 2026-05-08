@@ -66,9 +66,9 @@ local function collectCitizenFlags(citizenids)
 end
 
 local function getGender(gen)
-    if gen == 0 then
+    if gen == 0 or gen == "male" then
         return 'Male'
-    elseif gen == 1 then
+    elseif gen == 1 or gen == "female" then
         return 'Female'
     end
     return 'Unknown'
@@ -95,15 +95,14 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
 
     -- Main query with pagination
     local query = [[
-        SELECT mp.id, p.citizenid, JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
-        JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname,
-        JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.gender')) AS gender,
-        JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.birthdate')) AS dateofbirth,
-        JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone')) AS phone,
-        JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label')) AS job
-        FROM players AS p
+        SELECT mp.id, p.character_id as citizenid, p.first_name AS firstname, p.last_name AS lastname,
+        p.gender AS gender,
+        p.dob AS dateofbirth,
+        p.phone_number AS phone,
+        p.job AS job
+        FROM characters AS p
         LEFT JOIN mdt_profiles AS mp
-        ON CONVERT(p.citizenid USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(mp.citizenid USING utf8mb4) COLLATE utf8mb4_general_ci
+        ON p.character_id = mp.citizenid COLLATE utf8mb4_general_ci
         LIMIT ? OFFSET ?
     ]]
     local result = safeQuery(query, { limit, offset })
@@ -143,12 +142,13 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         end
 
         local propRows = safeQuery(
-            ('SELECT citizenid, COUNT(*) AS cnt FROM player_houses WHERE citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+            ('SELECT CAST(owner_citizenid AS UNSIGNED) as citizenid, COUNT(*) AS cnt FROM properties WHERE owner_citizenid IN (%s) GROUP BY citizenid'):format(inClause),
             citizenids
         )
         for _, row in ipairs(propRows) do
             propCounts[row.citizenid] = tonumber(row.cnt) or 0
         end
+
 
         local vehRows = safeQuery(
             ('SELECT citizenid, COUNT(*) AS cnt FROM player_vehicles WHERE citizenid IN (%s) GROUP BY citizenid'):format(inClause),
@@ -172,7 +172,7 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         v.cid = v.citizenid
         v.firstName = v.firstname
         v.lastName = v.lastname
-        v.gender = getGender(tonumber(v.gender))
+        v.gender = getGender(tonumber(v.gender) or v.gender)
         v.dob = v.dateofbirth
         v.phone = v.phone
         v.image = profilePics[v.citizenid] or nil
@@ -276,7 +276,7 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
         end
 
         local propRows = safeQuery(
-            ('SELECT citizenid, COUNT(*) AS cnt FROM player_houses WHERE citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+            ('SELECT owner_citizenid as citizenid, COUNT(*) AS cnt FROM properties WHERE owner_citizenid IN (%s) GROUP BY citizenid'):format(inClause),
             citizenids
         )
         for _, row in ipairs(propRows) do
@@ -374,16 +374,14 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
 
     local playerRow = MySQL.single.await([[
         SELECT
-            p.citizenid,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.gender')) AS gender,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.birthdate')) AS dateofbirth,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone')) AS phone,
-            p.job,
-            p.metadata
-        FROM players AS p
-        WHERE p.citizenid = ?
+            p.character_id as citizenid, p.first_name AS firstname, p.last_name AS lastname,
+            p.gender AS gender,
+            p.dob AS dateofbirth,
+            p.phone_number AS phone,
+            p.job AS job,
+            p.data AS metadata
+        FROM characters AS p
+        WHERE p.character_id = ?
         LIMIT 1
     ]], { citizenid })
 
@@ -420,7 +418,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
     local flags = collectCitizenFlags({ citizenid })
     local vehicles = MySQL.query.await('SELECT plate, vehicle FROM player_vehicles WHERE citizenid = ?', { citizenid }) or {}
     local vehiclesCount = #vehicles
-    local properties = MySQL.query.await('SELECT house FROM player_houses WHERE citizenid = ?', { citizenid }) or {}
+    local properties = MySQL.query.await('SELECT CONCAT(IFNULL(apartment, street), " - No ", property_id) as house FROM properties WHERE owner_citizenid = ?', { citizenid }) or {}
     local propertiesCount = #properties
     local arrestsCount = MySQL.scalar.await('SELECT COUNT(*) FROM mdt_arrests WHERE citizenid = ?', { citizenid }) or 0
     local activeWarrants = MySQL.query.await([[

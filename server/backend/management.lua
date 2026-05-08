@@ -37,6 +37,7 @@ end
 local function getPoliceJobDefinition(source)
     local jobName = resolvePoliceJobName(source)
 
+    --[[
     if exports['qb-core'] then
         local QBCore = exports['qb-core']:GetCoreObject()
         local jobs = QBCore and QBCore.Shared and QBCore.Shared.Jobs
@@ -44,9 +45,13 @@ local function getPoliceJobDefinition(source)
             return jobName, jobs[jobName]
         end
     end
+    --]]
+
+    ps.debug("Searching for .. " .. jobName);
 
     if ps and ps.getSharedJobData then
         local job = ps.getSharedJobData(jobName)
+        ps.debug(job)
         if job then
             return jobName, job
         end

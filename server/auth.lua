@@ -14,7 +14,7 @@ function CheckAuth(source, silent)
     local jobName = ps.getJobName(source)
     local dojCheck = isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
     if jobType ~= Config.PoliceJobType and jobType ~= Config.MedicalJobType and not dojCheck then
-        ps.debug('Access Denied for ID: ' .. source .. ', Name: ' .. ps.getPlayerName(source) .. ', not an authorized job type')
+        ps.debug('Access Denied for ID: ' .. source .. ', Name: ' .. ps.getPlayerName(source) .. ', not an authorized job type! Job Type: ' .. tostring(jobType) .. ', Job Name: ' .. tostring(jobName))
         if not silent then
             ps.notify(source, 'Access Denied: Authorized Personnel Only', 'error')
         end
