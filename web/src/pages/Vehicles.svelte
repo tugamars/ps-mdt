@@ -317,8 +317,8 @@
 					</div>
 					<div class="info-item"><span class="info-label">Plate</span><span class="info-value mono">{selectedVehicle.plate}</span></div>
 					<div class="info-item"><span class="info-label">Model</span><span class="info-value">{selectedVehicle.label}</span></div>
-					<div class="info-item"><span class="info-label">Class</span><span class="info-value">{selectedVehicle.class}</span></div>
-					<div class="info-item"><span class="info-label">Type</span><span class="info-value">{selectedVehicle.type}</span></div>
+					<div class="info-item"><span class="info-label">Color</span><span class="info-value">{selectedVehicle.class}</span></div>
+					<div class="info-item"><span class="info-label">State</span><span class="info-value">{selectedVehicle.type}</span></div>
 					<div class="info-item"><span class="info-label">Brand</span><span class="info-value">{selectedVehicle.brand || 'Unknown'}</span></div>
 					<div class="info-item"><span class="info-label">Reports</span><span class="info-value">{selectedVehicle.seenIn || 0}</span></div>
 					<div class="info-item"><span class="info-label">Points</span><span class="info-value" class:accent-red={(selectedVehicle.points ?? 0) > 0}>{selectedVehicle.points ?? 0}</span></div>
@@ -444,7 +444,7 @@
 				<span class="col-name">Vehicle</span>
 				<span class="col-plate">Plate</span>
 				<span class="col-owner">Owner</span>
-				<span class="col-class">Class</span>
+				<span class="col-class">Color</span>
 				<span class="col-points">Points</span>
 				<span class="col-status">Status</span>
 				<span class="col-flags">Flags</span>
