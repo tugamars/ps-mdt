@@ -15,11 +15,13 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
         return { success = false, error = 'Missing citizen id' }
     end
 
-    local player = MySQL.single.await([[
-        SELECT JSON_UNQUOTE(JSON_EXTRACT(charinfo, "$.firstname")) AS firstname,
-               JSON_UNQUOTE(JSON_EXTRACT(charinfo, "$.lastname")) AS lastname
-        FROM players WHERE citizenid = ?
-    ]], { citizenid })
+    local player = MySQL.single.await(([[
+        SELECT %s AS firstname, %s AS lastname
+        FROM %s WHERE %s = ?
+    ]]):format(
+        TableMap.Players.fields.firstname, TableMap.Players.fields.lastname,
+        TableMap.Players.table, TableMap.Players.joinKey
+    ), { citizenid })
 
     local complainantName = 'Unknown'
     if player then
