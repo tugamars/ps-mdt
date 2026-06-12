@@ -119,13 +119,13 @@ Config.ImpoundLocations = {
 }
 
 -- Job Settings
-Config.PoliceJobType = "leo"
+Config.PoliceJobType = "LEO"
 Config.PoliceJobs = {
-    'lspd',
-    'bcso',
-    'sahp',
-    'fib',
-    'gov'
+    'lspd_business',
+    'bcso_business',
+    'sahp_business',
+    'fib_business',
+    'gov_business'
 }
 
 Config.DojJobType = "doj"
@@ -265,7 +265,7 @@ Config.ManagementPermissions = {
 -- Bodycam Settings (override defaults if needed, remove to use built-in defaults)
 Config.Bodycam = {
     DutyEvent = 'QBCore:Server:OnJobUpdate',
-    DutyEventMode = 'qbcore',
+    DutyEventMode = 'pslib',
     MultiJobDutyEvent = 'ps-multijob:server:dutyChanged',
     DutyResource = 'qb-core',
     MultiJobResource = 'ps-multijob',
@@ -273,12 +273,23 @@ Config.Bodycam = {
 
 -- Optional defaults for role permissions by job/grade
 -- Example:
--- Config.PermissionDefaults = {
---     police = {
---         ['0'] = { 'access_reports' },
---         ['1'] = { 'access_reports', 'view_bodycams' },
---     }
--- }
+Config.PermissionDefaults = {
+     business_public = {
+         ['1'] = {
+             "bolos_create",
+             "bolos_view",
+             "charges_view",
+             "citizens_search",
+             "reports_create",
+             "reports_view",
+             "sop_view",
+             "vehicles_search",
+             "warrants_view",
+             "weapons_search"
+         },
+     }
+}
+
 Config.PermissionDefaults = Config.PermissionDefaults or {}
 
 -- HIGHLY recommended not tuse this natively. Use FiveManage for this.
