@@ -8,11 +8,15 @@ end)
 
 RegisterNUICallback('getCitizens', function(data, cb)
     if not MDTOpen then cb({}) return end
+
+
     if type(data) ~= 'table' then
-        data = {page = 1}
+        data = {page = 1, search = nil}
     end
+
     local page = data.page or 1 -- Default to page 1 if not provided
-    local ok, result = pcall(ps.callback, resourceName..':server:getCitizens', page)
+
+    local ok, result = pcall(ps.callback, resourceName..':server:getCitizens', page, data.search ~= '' and data.search or nil)
     if not ok or type(result) ~= 'table' then
         ps.warn('[getCitizens] Server callback failed: ' .. tostring(result))
         cb({})
