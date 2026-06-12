@@ -27,7 +27,16 @@ client_script {
 
 server_scripts {
   '@oxmysql/lib/MySQL.lua',
-  'server/**.lua'
+  'server/table_map.lua',   -- must be first: defines TableMap used by all backend files
+  'server/auth.lua',
+  'server/cache.lua',
+  'server/cameras.lua',
+  'server/commands.lua',
+  'server/events.lua',
+  'server/fivemanage.lua',
+  'server/functions.lua',
+  'server/main.lua',
+  'server/backend/**.lua',
 }
 
 files {
