@@ -85,28 +85,64 @@ local function safeQuery(query, params)
 end
 
 -- getCitizens - pulls citizens from database with pagination support
-ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page)
+ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page, searchQuery)
     local src = source
-    if not CheckAuth(src) then return {} end
+    if not CheckAuth(src) then return { data = {}, total = 0, totalPages = 1, page = 1, limit = 20 } end
     local startTime = os.clock()
-    page = page or 1 -- Default to page 1 if not provided
+    page = tonumber(page) or 1 -- Default to page 1 if not provided
     local limit = Config.Pagination and Config.Pagination.Citizens or 20
     local offset = (page - 1) * limit
 
+    searchQuery = searchQuery and tostring(searchQuery) or nil;
+    local whereQuery = '';
+    local params = {};
+
+    local _P = TableMap.Players
+    local searchParamsOnly={};
+
+    if(searchQuery) then
+        whereQuery = ("WHERE CONCAT(".._P.fields.firstname..", ' ', ".._P.fields.lastname..") like ? or ".._P.fields.citizenid.." like ?");
+
+        params = { "%"..searchQuery.."%", "%"..searchQuery.."%", limit, offset }
+        searchParamsOnly = { "%"..searchQuery.."%", "%"..searchQuery.."%" }
+    else
+        params = { limit, offset }
+        searchParamsOnly = {}
+    end
+
     -- Main query with pagination
-    local query = [[
-        SELECT mp.id, p.character_id as citizenid, p.first_name AS firstname, p.last_name AS lastname,
-        p.gender AS gender,
-        p.dob AS dateofbirth,
-        p.phone_number AS phone,
-        p.job AS job
-        FROM characters AS p
+    local total = MySQL.scalar.await( ('SELECT COUNT(*) FROM %s as %s %s'):format(_P.table, _P.alias,whereQuery), searchParamsOnly ) or 0
+    local totalPages = math.max(1, math.ceil(total / limit))
+
+    local query = ([[
+        SELECT mp.id,
+        %s AS citizenid,
+        %s AS firstname,
+        %s AS lastname,
+        %s AS gender,
+        %s AS dateofbirth,
+        %s AS phone,
+        %s AS job,
+        %s as profilePic
+        FROM %s AS %s
         LEFT JOIN mdt_profiles AS mp
-        ON p.character_id = mp.citizenid COLLATE utf8mb4_general_ci
+        ON %s
+        %s
+        ORDER BY %s ASC, %s ASC
         LIMIT ? OFFSET ?
-    ]]
-    local result = safeQuery(query, { limit, offset })
-    if not result or #result == 0 then return {} end
+    ]]):format(
+        _P.fields.citizenid, _P.fields.firstname, _P.fields.lastname,
+        _P.fields.gender, _P.fields.dateofbirth, _P.fields.phone,
+        _P.fields.joblabel, _P.fields.profilePic,
+        _P.table, _P.alias,
+        TableMap.joinCondition('mp'),
+        whereQuery,
+        _P.fields.firstname, _P.fields.lastname
+
+    )
+
+    local result = safeQuery(query, params)
+    if not result or #result == 0 then return { data = {}, total = 0, totalPages = 1, page = 1, limit = 20 } end
 
     local citizenids = {}
     for _, v in ipairs(result) do
@@ -142,7 +178,10 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         end
 
         local propRows = safeQuery(
-            ('SELECT CAST(owner_citizenid AS UNSIGNED) as citizenid, COUNT(*) AS cnt FROM properties WHERE owner_citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+            ('SELECT %s AS citizenid, COUNT(*) AS cnt FROM %s WHERE %s IN (%s) GROUP BY citizenid'):format(
+                TableMap.Properties.rawFields.owner, TableMap.Properties.table,
+                TableMap.Properties.rawFields.owner, inClause
+            ),
             citizenids
         )
         for _, row in ipairs(propRows) do
@@ -151,7 +190,10 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
 
 
         local vehRows = safeQuery(
-            ('SELECT citizenid, COUNT(*) AS cnt FROM player_vehicles WHERE citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+            ('SELECT %s AS citizenid, COUNT(*) AS cnt FROM %s WHERE %s IN (%s) GROUP BY citizenid'):format(
+                TableMap.Vehicles.rawFields.citizenid, TableMap.Vehicles.table,
+                TableMap.Vehicles.rawFields.citizenid, inClause
+            ),
             citizenids
         )
         for _, row in ipairs(vehRows) do
@@ -175,7 +217,7 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         v.gender = getGender(tonumber(v.gender) or v.gender)
         v.dob = v.dateofbirth
         v.phone = v.phone
-        v.image = profilePics[v.citizenid] or nil
+        v.image = profilePics[v.citizenid] or v.profilePic or nil
         v.occupations = { v.job }
         v.properties = propCounts[v.citizenid] or 0
         v.vehicles = vehCounts[v.citizenid] or 0
@@ -190,7 +232,13 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         ps.debug('[getCitizens] Sample citizen data structure:', result[1])
     end
 
-    return result
+    return {
+        data = result,
+        total = total,
+        totalPages = totalPages,
+        page = page,
+        limit = limit
+    }
 end)
 
 -- searchPlayers - searches the database for citizens by provided query (first/last name, citizenid, phone number, occupation)
@@ -213,28 +261,41 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
     -- Sanitize the query for SQL LIKE operations
     local searchTerm = '%' .. query:lower() .. '%'
 
-    -- Build a complex search query that searches across multiple fields and returns same data as getCitizens
-    local sqlQuery = [[
+    -- Build a complex search query using TableMap field expressions
+    local _P = TableMap.Players
+    local sqlQuery = ([[
         SELECT DISTINCT
             mp.id,
-            p.citizenid,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.gender')) AS gender,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.birthdate')) AS dateofbirth,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone')) AS phone,
-            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label')) AS job
-        FROM players AS p
-        LEFT JOIN mdt_profiles AS mp ON p.citizenid COLLATE utf8mb4_general_ci = mp.citizenid COLLATE utf8mb4_general_ci
-        WHERE 
-            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname'))) LIKE ? OR
-            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))) LIKE ? OR
-            LOWER(CONCAT(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')), ' ', JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')))) LIKE ? OR
-            LOWER(p.citizenid) LIKE ? OR
-            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone'))) LIKE ? OR
-            LOWER(JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.label'))) LIKE ?
+            %s AS citizenid,
+            %s AS firstname,
+            %s AS lastname,
+            %s AS gender,
+            %s AS dateofbirth,
+            %s AS phone,
+            %s AS job
+        FROM %s AS %s
+        LEFT JOIN mdt_profiles AS mp ON %s
+        WHERE
+            LOWER(%s) LIKE ? OR
+            LOWER(%s) LIKE ? OR
+            LOWER(%s) LIKE ? OR
+            LOWER(%s) LIKE ? OR
+            LOWER(%s) LIKE ? OR
+            LOWER(%s) LIKE ?
         LIMIT ?
-    ]]
+    ]]):format(
+        _P.fields.citizenid, _P.fields.firstname, _P.fields.lastname,
+        _P.fields.gender, _P.fields.dateofbirth, _P.fields.phone,
+        _P.fields.joblabel,
+        _P.table, _P.alias,
+        TableMap.joinCondition('mp'),
+        _P.fields.firstname,
+        _P.fields.lastname,
+        TableMap.fullNameConcat(),
+        _P.fields.citizenid,
+        _P.fields.phone,
+        _P.fields.joblabel
+    )
 
     local searchLimit = Config.Pagination and Config.Pagination.CitizenSearch or 20
     local result = safeQuery(sqlQuery, {
@@ -276,7 +337,10 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
         end
 
         local propRows = safeQuery(
-            ('SELECT owner_citizenid as citizenid, COUNT(*) AS cnt FROM properties WHERE owner_citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+            ('SELECT %s AS citizenid, COUNT(*) AS cnt FROM %s WHERE %s IN (%s) GROUP BY citizenid'):format(
+                TableMap.Properties.rawFields.owner, TableMap.Properties.table,
+                TableMap.Properties.rawFields.owner, inClause
+            ),
             citizenids
         )
         for _, row in ipairs(propRows) do
@@ -284,7 +348,10 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
         end
 
         local vehRows = safeQuery(
-            ('SELECT citizenid, COUNT(*) AS cnt FROM player_vehicles WHERE citizenid IN (%s) GROUP BY citizenid'):format(inClause),
+            ('SELECT %s AS citizenid, COUNT(*) AS cnt FROM %s WHERE %s IN (%s) GROUP BY citizenid'):format(
+                TableMap.Vehicles.rawFields.citizenid, TableMap.Vehicles.table,
+                TableMap.Vehicles.rawFields.citizenid, inClause
+            ),
             citizenids
         )
         for _, row in ipairs(vehRows) do
@@ -372,18 +439,28 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
         return { success = false, message = 'Missing citizen id' }
     end
 
-    local playerRow = MySQL.single.await([[
+    local _P = TableMap.Players
+    local playerRow = MySQL.single.await(([[
         SELECT
-            p.character_id as citizenid, p.first_name AS firstname, p.last_name AS lastname,
-            p.gender AS gender,
-            p.dob AS dateofbirth,
-            p.phone_number AS phone,
-            p.job AS job,
-            p.data AS metadata
-        FROM characters AS p
-        WHERE p.character_id = ?
+            %s AS citizenid,
+            %s AS firstname,
+            %s AS lastname,
+            %s AS gender,
+            %s AS dateofbirth,
+            %s AS phone,
+            %s AS job,
+            %s as profilePic,
+            %s AS metadata
+        FROM %s AS %s
+        WHERE %s = ?
         LIMIT 1
-    ]], { citizenid })
+    ]]):format(
+        _P.fields.citizenid, _P.fields.firstname, _P.fields.lastname,
+        _P.fields.gender, _P.fields.dateofbirth, _P.fields.phone,
+        _P.fields.joblabel,_P.fields.profilePic,  _P.fields.metadata,
+        _P.table, _P.alias,
+        _P.fields.citizenid
+    ), { citizenid })
 
     if not playerRow then
         return { success = false, message = 'Citizen not found' }
@@ -416,9 +493,18 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
         end
     end
     local flags = collectCitizenFlags({ citizenid })
-    local vehicles = MySQL.query.await('SELECT plate, vehicle FROM player_vehicles WHERE citizenid = ?', { citizenid }) or {}
+    local vehicles = MySQL.query.await(
+        ('SELECT %s AS plate, %s AS vehicle FROM %s WHERE %s = ?'):format(
+            TableMap.Vehicles.rawFields.plate, TableMap.Vehicles.rawFields.vehicle,
+            TableMap.Vehicles.table, TableMap.Vehicles.rawFields.citizenid
+        ), { citizenid }) or {}
     local vehiclesCount = #vehicles
-    local properties = MySQL.query.await('SELECT CONCAT(IFNULL(apartment, street), " - No ", property_id) as house FROM properties WHERE owner_citizenid = ?', { citizenid }) or {}
+    local properties = MySQL.query.await(
+        ('SELECT CONCAT(IFNULL(%s, %s), " - No ", %s) AS house FROM %s WHERE %s = ?'):format(
+            TableMap.Properties.rawFields.apartment, TableMap.Properties.rawFields.street,
+            TableMap.Properties.rawFields.property_id,
+            TableMap.Properties.table, TableMap.Properties.rawFields.owner
+        ), { citizenid }) or {}
     local propertiesCount = #properties
     local arrestsCount = MySQL.scalar.await('SELECT COUNT(*) FROM mdt_arrests WHERE citizenid = ?', { citizenid }) or 0
     local activeWarrants = MySQL.query.await([[
@@ -530,8 +616,8 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
         local ok, decoded = pcall(json.decode, playerRow.metadata)
         if ok and decoded then
             metadata = decoded
-            if decoded.licences then
-                licences = decoded.licences
+            if decoded.licenses then
+                licences = decoded.licenses
             end
             if decoded.fingerprint then
                 fingerprint = decoded.fingerprint
@@ -554,7 +640,11 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
             .. randomChar() .. randomChar() .. randomChar() .. randomChar() .. '-'
             .. randomChar() .. randomChar() .. randomChar() .. randomChar()
         metadata.fingerprint = fingerprint
-        MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { json.encode(metadata), citizenid })
+        MySQL.update.await(
+            ('UPDATE %s SET %s = ? WHERE %s = ?'):format(
+                TableMap.Players.table, TableMap.Players.rawFields.metadata, TableMap.Players.joinKey
+            ), { json.encode(metadata), citizenid }
+        )
     end
 
     return {
@@ -573,7 +663,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
             vehicles = vehiclesCount,
             arrests = arrestsCount,
             flags = flags[citizenid] or {},
-            image = (profileRow and profileRow.profilepicture and profileRow.profilepicture ~= '') and profileRow.profilepicture or nil,
+            image = ((profileRow and profileRow.profilepicture and profileRow.profilepicture ~= '') and profileRow.profilepicture) or playerRow.profilePic or nil,
             notes = profileRow and profileRow.notes or '',
             tags = profileTags,
             gallery = profileGallery,
@@ -589,22 +679,38 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
                 weapon = licences.weapon or false,
             },
             customLicenses = (function()
-                local customRows = MySQL.query.await([[
-                    SELECT cl.id, cl.name, cl.description,
-                           COALESCE(cil.active, 0) as active
-                    FROM mdt_custom_licenses cl
-                    LEFT JOIN mdt_citizen_licenses cil ON cil.license_id = cl.id AND cil.citizenid = ?
-                    ORDER BY cl.id ASC
-                ]], { citizenid })
                 local result = {}
-                for _, r in ipairs(customRows or {}) do
-                    result[#result + 1] = {
-                        id = r.id,
-                        name = r.name,
-                        description = r.description or '',
-                        active = (tonumber(r.active) or 0) == 1,
-                    }
+
+                for k,v in pairs(LicensesAvailable) do
+                    local isActive = false;
+                    local description = "Valid";
+
+                    if(licences[k] ~= nil) then
+                        isActive = licences[k].status:lower() == "valid";
+
+                        if(not isActive) then
+                            description = licences[k].status:gsub("^%l", string.upper);
+                        end
+
+                        if(isActive and licences[k].expires < os.time()) then
+                            isActive = true;
+                            description = "Expired";
+                        end
+
+                        result[#result + 1] = {
+                            id = k,
+                            name = v.name,
+                            icon = v.icon,
+                            description = description,
+                            active = isActive,
+                        }
+
+                    else
+                        isActive = false;
+                        description = "Not Issued";
+                    end
                 end
+
                 return result
             end)(),
         }
@@ -623,16 +729,28 @@ ps.registerCallback(resourceName .. ':server:updateCitizenLicense', function(sou
         return { success = false, message = 'Missing citizen id or license' }
     end
 
-    local row = MySQL.single.await('SELECT metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenId })
+    local row = MySQL.single.await(
+        ('SELECT %s AS metadata FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Players.rawFields.metadata, TableMap.Players.table, TableMap.Players.joinKey
+        ), { citizenId })
     if not row then
         return { success = false, message = 'Citizen not found' }
     end
 
     local metadata = row.metadata and json.decode(row.metadata) or {}
-    metadata.licences = metadata.licences or {}
-    metadata.licences[licenseType] = enabled
+    local licences = metadata.licenses or {}
+    if(licences[licenseType] == nil) then
+        return { success = false, message = 'License not found' }
+    end
 
-    MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { json.encode(metadata), citizenId })
+    if enabled then
+        licences[licenseType].status = "valid";
+    else
+        licences[licenseType].status = "suspended";
+    end
+
+    ps.setPlayerMetadata(citizenId, 'licenses', licences)
+
     return { success = true }
 end)
 
@@ -642,28 +760,41 @@ ps.registerCallback(resourceName .. ':server:updateCitizenCustomLicense', functi
 
     payload = payload or {}
     local citizenId = payload.citizenid
-    local licenseId = tonumber(payload.licenseId)
+    local licenseType = payload.licenseId
     local enabled = payload.enabled == true
-
-    if not citizenId or not licenseId then
-        return { success = false, message = 'Missing citizen id or license id' }
+    if not citizenId or not licenseType then
+        return { success = false, message = 'Missing citizen id or license' }
     end
 
-    -- Verify the license exists
-    local licenseExists = MySQL.scalar.await('SELECT id FROM mdt_custom_licenses WHERE id = ?', { licenseId })
-    if not licenseExists then
+    local row = MySQL.single.await(
+            ('SELECT %s AS metadata FROM %s WHERE %s = ? LIMIT 1'):format(
+                    TableMap.Players.rawFields.metadata, TableMap.Players.table, TableMap.Players.joinKey
+            ), { citizenId })
+    if not row then
+        return { success = false, message = 'Citizen not found' }
+    end
+
+    local metadata = row.metadata and json.decode(row.metadata) or {}
+    local licences = metadata.licenses or {}
+    if(licences[licenseType] == nil) then
         return { success = false, message = 'License not found' }
     end
 
-    local grantedBy = ps.getIdentifier(src)
+    local newDescription="Valid";
 
-    MySQL.query.await([[
-        INSERT INTO mdt_citizen_licenses (citizenid, license_id, active, granted_by)
-        VALUES (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE active = VALUES(active), granted_by = VALUES(granted_by)
-    ]], { citizenId, licenseId, enabled and 1 or 0, grantedBy })
+    if enabled then
+        licences[licenseType].status = "valid";
+        if(licences[licenseType].expires and licences[licenseType].expires < os.time()) then
+            newDescription="Expired";
+        end
+    else
+        licences[licenseType].status = "suspended";
+        newDescription="Suspended";
+    end
 
-    return { success = true }
+    ps.setPlayerMetadata(citizenId, 'licenses', licences)
+
+    return { success = true, newDescription = newDescription }
 end)
 
 -- Trigger fingerprint scan on a suspect (opens qb-policejob fingerprint UI)
@@ -676,7 +807,10 @@ ps.registerCallback(resourceName .. ':server:addSuspectFingerprint', function(so
     end
 
     -- Check if suspect already has a fingerprint on file
-    local row = MySQL.single.await('SELECT metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    local row = MySQL.single.await(
+        ('SELECT %s AS metadata FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Players.rawFields.metadata, TableMap.Players.table, TableMap.Players.joinKey
+        ), { citizenid })
     if row then
         local metadata = row.metadata and json.decode(row.metadata) or {}
         if metadata.fingerprint and metadata.fingerprint ~= '' then
@@ -716,14 +850,21 @@ ps.registerCallback(resourceName .. ':server:updateCitizenFingerprint', function
         return { success = false, message = 'Missing citizen id' }
     end
 
-    local row = MySQL.single.await('SELECT metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    local row = MySQL.single.await(
+        ('SELECT %s AS metadata FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Players.rawFields.metadata, TableMap.Players.table, TableMap.Players.joinKey
+        ), { citizenid })
     if not row then
         return { success = false, message = 'Citizen not found' }
     end
 
     local metadata = row.metadata and json.decode(row.metadata) or {}
     metadata.fingerprint = fingerprint or ''
-    MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { json.encode(metadata), citizenid })
+    MySQL.update.await(
+        ('UPDATE %s SET %s = ? WHERE %s = ?'):format(
+            TableMap.Players.table, TableMap.Players.rawFields.metadata, TableMap.Players.joinKey
+        ), { json.encode(metadata), citizenid }
+    )
 
     if ps.auditLog then
         ps.auditLog(src, 'update_fingerprint', 'citizens', citizenid, { fingerprint = fingerprint })
@@ -741,14 +882,21 @@ ps.registerCallback(resourceName .. ':server:updateCitizenDNA', function(source,
         return { success = false, message = 'Missing citizen id' }
     end
 
-    local row = MySQL.single.await('SELECT metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    local row = MySQL.single.await(
+        ('SELECT %s AS metadata FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Players.rawFields.metadata, TableMap.Players.table, TableMap.Players.joinKey
+        ), { citizenid })
     if not row then
         return { success = false, message = 'Citizen not found' }
     end
 
     local metadata = row.metadata and json.decode(row.metadata) or {}
     metadata.dna = dna or ''
-    MySQL.update.await('UPDATE players SET metadata = ? WHERE citizenid = ?', { json.encode(metadata), citizenid })
+    MySQL.update.await(
+        ('UPDATE %s SET %s = ? WHERE %s = ?'):format(
+            TableMap.Players.table, TableMap.Players.rawFields.metadata, TableMap.Players.joinKey
+        ), { json.encode(metadata), citizenid }
+    )
 
     if ps.auditLog then
         ps.auditLog(src, 'update_dna', 'citizens', citizenid, { dna = dna })
@@ -969,18 +1117,28 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     end
 
     -- Run all queries in parallel using promises
-    local pOk, pPlayer = pcall(MySQL.single.await, [[
-        SELECT p.citizenid,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.gender')) AS gender,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.birthdate')) AS dateofbirth,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.phone')) AS phone,
-            p.metadata,
-            (SELECT COUNT(*) FROM mdt_reports_charges WHERE citizenid COLLATE utf8mb4_general_ci = p.citizenid) AS arrests,
-            (SELECT COUNT(*) FROM player_vehicles WHERE citizenid COLLATE utf8mb4_general_ci = p.citizenid) AS vehicle_count
-        FROM players p WHERE p.citizenid = ? LIMIT 1
-    ]], { citizenid })
+    local _P = TableMap.Players
+    local pOk, pPlayer = pcall(MySQL.single.await, ([[
+        SELECT %s AS citizenid,
+            %s AS firstname,
+            %s AS lastname,
+            %s AS gender,
+            %s AS dateofbirth,
+            %s AS phone,
+            %s AS metadata,
+            (SELECT COUNT(*) FROM mdt_reports_charges WHERE citizenid COLLATE utf8mb4_general_ci = %s) AS arrests,
+            (SELECT COUNT(*) FROM %s WHERE %s COLLATE utf8mb4_general_ci = %s) AS vehicle_count
+        FROM %s %s WHERE %s = ? LIMIT 1
+    ]]):format(
+        _P.fields.citizenid, _P.fields.firstname, _P.fields.lastname,
+        _P.fields.gender, _P.fields.dateofbirth, _P.fields.phone,
+        _P.fields.metadata,
+        _P.fields.citizenid,                            -- subquery: mdt_reports_charges
+        TableMap.Vehicles.table,                        -- subquery: vehicle_count
+        TableMap.Vehicles.rawFields.citizenid,
+        _P.fields.citizenid,
+        _P.table, _P.alias, _P.fields.citizenid        -- FROM / WHERE
+    ), { citizenid })
 
     if not pOk or not pPlayer then
         return { success = false, message = 'Profile not found' }
@@ -1062,7 +1220,10 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
 
     -- Vehicles
     local vOk, vehicles = pcall(MySQL.query.await,
-        'SELECT plate, vehicle FROM player_vehicles WHERE citizenid COLLATE utf8mb4_general_ci = ?',
+        ('SELECT %s AS plate, %s AS vehicle FROM %s WHERE %s COLLATE utf8mb4_general_ci = ?'):format(
+            TableMap.Vehicles.rawFields.plate, TableMap.Vehicles.rawFields.vehicle,
+            TableMap.Vehicles.table, TableMap.Vehicles.rawFields.citizenid
+        ),
         { citizenid })
     vehicles = vOk and vehicles or {}
 

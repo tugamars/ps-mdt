@@ -30,6 +30,7 @@
 	interface CustomLicenseStatus {
 		id: number;
 		name: string;
+		icon: string;
 		description?: string;
 		active: boolean;
 	}
@@ -95,7 +96,7 @@
 	import type { AuthService } from "../services/authService.svelte";
 
 	let { tabService, jobType = 'leo', authService }: { tabService: ReturnType<typeof createTabService>; jobType?: JobType; authService?: AuthService } =
-		$props();
+			$props();
 
 	let canManageLicenses = $derived(authService?.hasPermission('citizens_edit_licenses') ?? !isEMS);
 
@@ -106,46 +107,44 @@
 	let selectedProfile: CitizenProfile | null = $state(null);
 	let copyNotice = $state("");
 	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
+	let debounceTimeout: ReturnType<typeof setTimeout> | null = null; // Debounce timeout for search
 
+	// im sure there's a better more streamlined way to do this, but here's a bandaid.
 	let citizenPage = $state(1);
-	let citizenPerPage = $state(25);
+	let citizenPerPage = $state(20);
+	let citizenTotalPages = $state(1); // how many pages exist
+	let citizenTotalRecords = $state(0);
 
-	let allFilteredCitizens = $derived.by(() => {
-		const query = searchQuery.trim().toLowerCase();
-		if (!query) return citizens;
-		return citizens.filter(({ firstName, lastName, cid, phone }) =>
-			[firstName, lastName, cid, phone].some((val) =>
-				val?.toLowerCase().includes(query),
-			),
-		);
-	});
-
-	let citizenTotalPages = $derived(Math.max(1, Math.ceil(allFilteredCitizens.length / citizenPerPage)));
 
 	let filteredCitizens = $derived.by(() => {
-		const start = (citizenPage - 1) * citizenPerPage;
-		return allFilteredCitizens.slice(start, start + citizenPerPage);
+		return citizens;
 	});
 
-	// Reset to page 1 when search changes
-	$effect(() => {
-		searchQuery;
-		citizenPage = 1;
-	});
+	// Flag to prevent the search effect from running on initial component creation
+	let initialSearchEffectRun = true;
 
-	async function fetchCitizens() {
+	// This function will now accept page and search parameters
+	async function fetchCitizens(page: number, search: string) {
 		loading = true;
 		try {
-			const result = await fetchNui(NUI_EVENTS.CITIZEN.GET_CITIZENS);
-			citizens = Array.isArray(result) ? result : [];
+			const result = await fetchNui(NUI_EVENTS.CITIZEN.GET_CITIZENS, {
+				page: page,
+				search: search,
+			});
+
+			citizens = Array.isArray(result.data) ? result.data : [];
+			citizenTotalPages = Number(result?.totalPages) || 1;
+			citizenTotalRecords = Number(result?.total);
 		} catch (error) {
 			globalNotifications.error("Failed to fetch citizens");
 			citizens = [];
+			citizenTotalPages = 1;
+			citizenTotalRecords = 0;
 		}
 		loading = false;
 	}
 
-
+	// Initial fetch on mount
 	onMount(async () => {
 		if (isEnvBrowser()) {
 			loading = false;
@@ -156,7 +155,31 @@
 			];
 			return;
 		}
-		await fetchCitizens();
+		// Perform initial fetch with current page (1) and empty search query
+		await fetchCitizens(citizenPage, searchQuery);
+	});
+
+	// Debounce search query changes
+	$effect(() => {
+		// Read searchQuery FIRST so Svelte always tracks it as a dependency,
+		// even on the initial run where we skip the actual fetch.
+		const query = searchQuery;
+
+		if (initialSearchEffectRun) {
+			initialSearchEffectRun = false;
+			return;
+		}
+
+		citizenPage = 1; // Reset to page 1 whenever the search changes
+
+		if (debounceTimeout) {
+			clearTimeout(debounceTimeout);
+		}
+		debounceTimeout = setTimeout(() => {
+			if (!isEnvBrowser()) {
+				fetchCitizens(1, query);
+			}
+		}, 500); // 500ms debounce – waits for the user to stop typing
 	});
 
 	useNuiEvent<Citizen[]>(NUI_EVENTS.CITIZEN.UPDATE_CITIZENS, (data) => {
@@ -191,10 +214,10 @@
 	}
 
 	let hasActiveWarrants = $derived(
-		(selectedProfile?.activeWarrants?.length ?? 0) > 0,
+			(selectedProfile?.activeWarrants?.length ?? 0) > 0,
 	);
 	let hasActiveBolos = $derived(
-		(selectedProfile?.activeBolos?.length ?? 0) > 0,
+			(selectedProfile?.activeBolos?.length ?? 0) > 0,
 	);
 
 	// Fingerprint editing
@@ -214,9 +237,9 @@
 
 		try {
 			const result = await fetchNui<{ success: boolean }>(
-				NUI_EVENTS.CITIZEN.UPDATE_CITIZEN_FINGERPRINT,
-				{ citizenid: selectedProfile.citizenid, fingerprint: trimmed },
-				{ success: true },
+					NUI_EVENTS.CITIZEN.UPDATE_CITIZEN_FINGERPRINT,
+					{ citizenid: selectedProfile.citizenid, fingerprint: trimmed },
+					{ success: true },
 			);
 			if (result?.success && selectedProfile) {
 				selectedProfile.fingerprint = trimmed;
@@ -243,9 +266,9 @@
 
 		try {
 			const result = await fetchNui<{ success: boolean }>(
-				NUI_EVENTS.CITIZEN.UPDATE_CITIZEN_DNA,
-				{ citizenid: selectedProfile.citizenid, dna: trimmed },
-				{ success: true },
+					NUI_EVENTS.CITIZEN.UPDATE_CITIZEN_DNA,
+					{ citizenid: selectedProfile.citizenid, dna: trimmed },
+					{ success: true },
 			);
 			if (result?.success && selectedProfile) {
 				selectedProfile.dna = trimmed;
@@ -272,22 +295,22 @@
 			if (response?.profile) {
 				selectedProfile = response.profile;
 				citizens = citizens.map((citizen) =>
-					citizen.cid === response.profile.citizenid
-						? {
-								...citizen,
-								firstName: response.profile.firstName,
-								lastName: response.profile.lastName,
-								gender: response.profile.gender,
-								dob: response.profile.dob,
-								phone: response.profile.phone,
-								image: response.profile.image,
-								occupations: response.profile.occupations || citizen.occupations,
-								properties: response.profile.properties,
-								vehicles: response.profile.vehicles,
-								arrests: response.profile.arrests,
-								flags: response.profile.flags || citizen.flags,
-						}
-						: citizen,
+						citizen.cid === response.profile.citizenid
+								? {
+									...citizen,
+									firstName: response.profile.firstName,
+									lastName: response.profile.lastName,
+									gender: response.profile.gender,
+									dob: response.profile.dob,
+									phone: response.profile.phone,
+									image: response.profile.image,
+									occupations: response.profile.occupations || citizen.occupations,
+									properties: response.profile.properties,
+									vehicles: response.profile.vehicles,
+									arrests: response.profile.arrests,
+									flags: response.profile.flags || citizen.flags,
+								}
+								: citizen,
 				);
 			}
 		} catch (error) {
@@ -360,16 +383,16 @@
 			const base64 = await compressImage(file);
 
 			const result = await fetchNui<{ success: boolean; message?: string; imageUrl?: string }>(
-				NUI_EVENTS.CITIZEN.UPLOAD_SUSPECT_PHOTO,
-				{ citizenid: selectedProfile.citizenid, image: base64 },
-				{ success: true, message: "Photo uploaded", imageUrl: base64 },
+					NUI_EVENTS.CITIZEN.UPLOAD_SUSPECT_PHOTO,
+					{ citizenid: selectedProfile.citizenid, image: base64 },
+					{ success: true, message: "Photo uploaded", imageUrl: base64 },
 			);
 
 			if (result.success) {
 				citizenImageBroken = false;
 				selectedProfile = { ...selectedProfile, image: result.imageUrl || base64 };
 				citizens = citizens.map((c) =>
-					c.cid === selectedProfile!.citizenid ? { ...c, image: result.imageUrl || base64 } : c,
+						c.cid === selectedProfile!.citizenid ? { ...c, image: result.imageUrl || base64 } : c,
 				);
 				globalNotifications.success(result.message || "Photo uploaded");
 			} else {
@@ -378,24 +401,24 @@
 		} catch {
 			globalNotifications.error("Failed to upload photo");
 		}
-		uploading = false;
 		input.value = "";
+		uploading = false;
 	}
 
 	async function triggerCitizenMugshot() {
 		if (!selectedProfile) return;
 		try {
 			const result = await fetchNui<{ success: boolean; message?: string; imageUrl?: string }>(
-				NUI_EVENTS.CITIZEN.TRIGGER_SUSPECT_MUGSHOT,
-				{ citizenid: selectedProfile.citizenid },
-				{ success: true, message: "Mugshot captured", imageUrl: "" },
+					NUI_EVENTS.CITIZEN.TRIGGER_SUSPECT_MUGSHOT,
+					{ citizenid: selectedProfile.citizenid },
+					{ success: true, message: "Mugshot captured", imageUrl: "" },
 			);
 			if (result.success) {
 				if (result.imageUrl) {
 					citizenImageBroken = false;
 					selectedProfile = { ...selectedProfile, image: result.imageUrl };
 					citizens = citizens.map((c) =>
-						c.cid === selectedProfile!.citizenid ? { ...c, image: result.imageUrl! } : c,
+							c.cid === selectedProfile!.citizenid ? { ...c, image: result.imageUrl! } : c,
 					);
 				}
 				globalNotifications.success(result.message || "Mugshot captured");
@@ -421,6 +444,8 @@
 		information?: string;
 		stolen?: boolean;
 		boloactive?: boolean;
+		vin?: string;
+		stateRegistered?: string;
 	}
 	let vehicleDetail: VehicleDetail | null = $state(null);
 	let vehicleDetailLoading = $state(false);
@@ -488,7 +513,7 @@
 			selectedProfile = {
 				...selectedProfile,
 				customLicenses: (selectedProfile.customLicenses || []).map(l =>
-					l.id === licenseId ? { ...l, active: enabled } : l
+						l.id === licenseId ? { ...l, active: enabled } : l
 				),
 			};
 			return;
@@ -502,7 +527,7 @@
 			selectedProfile = {
 				...selectedProfile,
 				customLicenses: (selectedProfile.customLicenses || []).map(l =>
-					l.id === licenseId ? { ...l, active: enabled } : l
+						l.id === licenseId ? { ...l, active: enabled, description: response.newDescription } : l
 				),
 			};
 		}
@@ -527,9 +552,7 @@
 			result.push({ key: "weapon", name: "Weapon License", type: "state", active: true });
 		}
 		for (const cl of selectedProfile.customLicenses || []) {
-			if (cl.active) {
-				result.push({ key: `custom-${cl.id}`, name: cl.name, type: "custom", active: true, customId: cl.id });
-			}
+			result.push({ key: `${cl.id}`, name: cl.name, type: "custom", description: cl.description, active: cl.active, customId: cl.id });
 		}
 		return result;
 	});
@@ -548,10 +571,10 @@
 	let issuableLicenses = $derived.by((): IssuableLicense[] => {
 		if (!selectedProfile) return [];
 		const result: IssuableLicense[] = [];
-		result.push({ key: "driver", name: "Driver's License", type: "state", active: selectedProfile.licenses?.driver || false });
-		result.push({ key: "weapon", name: "Weapon License", type: "state", active: selectedProfile.licenses?.weapon || false });
+		//result.push({ key: "driver", name: "Driver's License", type: "state", active: selectedProfile.licenses?.driver || false });
+		//result.push({ key: "weapon", name: "Weapon License", type: "state", active: selectedProfile.licenses?.weapon || false });
 		for (const cl of selectedProfile.customLicenses || []) {
-			result.push({ key: `custom-${cl.id}`, name: cl.name, type: "custom", active: cl.active, customId: cl.id });
+			result.push({ key: `${cl.id}`, name: cl.name, type: "custom", active: cl.active, customId: cl.id });
 		}
 		return result;
 	});
@@ -670,21 +693,21 @@
 							{/if}
 						</div>
 						{#if !isEMS}
-						<div class="profile-photo-actions">
-							<button class="photo-action-btn" onclick={openCitizenPhotoUpload} title="Upload photo" disabled={uploading}>
-								{#if uploading}
-									<div class="upload-spinner"></div>
-									Uploading...
-								{:else}
-									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-									Upload
-								{/if}
-							</button>
-							<button class="photo-action-btn" onclick={triggerCitizenMugshot} title="Take mugshot">
-								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-								Take Mugshot
-							</button>
-						</div>
+							<div class="profile-photo-actions">
+								<button class="photo-action-btn" onclick={openCitizenPhotoUpload} title="Upload photo" disabled={uploading}>
+									{#if uploading}
+										<div class="upload-spinner"></div>
+										Uploading...
+									{:else}
+										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+										Upload
+									{/if}
+								</button>
+								<button class="photo-action-btn" onclick={triggerCitizenMugshot} title="Take mugshot">
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+									Take Mugshot
+								</button>
+							</div>
 						{/if}
 					</div>
 
@@ -700,11 +723,11 @@
 							<span class="dlabel">Fingerprint</span>
 							{#if editingFingerprint}
 								<input
-									class="dna-input"
-									type="text"
-									bind:value={fingerprintValue}
-									onkeydown={(e) => { if (e.key === 'Enter') saveFingerprint(); if (e.key === 'Escape') { editingFingerprint = false; } }}
-									onblur={saveFingerprint}
+										class="dna-input"
+										type="text"
+										bind:value={fingerprintValue}
+										onkeydown={(e) => { if (e.key === 'Enter') saveFingerprint(); if (e.key === 'Escape') { editingFingerprint = false; } }}
+										onblur={saveFingerprint}
 								/>
 							{:else}
 								<span class="dvalue clickable" onclick={() => startEditFingerprint()}>
@@ -717,11 +740,11 @@
 							<span class="dlabel">DNA</span>
 							{#if editingDNA}
 								<input
-									class="dna-input"
-									type="text"
-									bind:value={dnaValue}
-									onkeydown={(e) => { if (e.key === 'Enter') saveDNA(); if (e.key === 'Escape') { editingDNA = false; } }}
-									onblur={saveDNA}
+										class="dna-input"
+										type="text"
+										bind:value={dnaValue}
+										onkeydown={(e) => { if (e.key === 'Enter') saveDNA(); if (e.key === 'Escape') { editingDNA = false; } }}
+										onblur={saveDNA}
 								/>
 							{:else}
 								<span class="dvalue clickable" onclick={() => startEditDNA()}>
@@ -829,7 +852,7 @@
 								Licenses <span class="cnt">{activeLicenses.length}</span>
 								{#if canManageLicenses}
 									<button class="issue-license-btn" onclick={() => (showIssueLicenseModal = true)}>
-										<span class="material-icons" style="font-size: 12px;">add</span> Issue License
+										<span class="material-icons" style="font-size: 12px;">add</span> Manage Licenses
 									</button>
 								{/if}
 							</div>
@@ -839,9 +862,9 @@
 										<div class="sitem">
 											<div class="sitem-info">
 												<span class="sitem-primary">{license.name}</span>
-												<span class="sitem-secondary">{license.type === 'state' ? 'State License' : 'Custom License'}</span>
+												<span class="sitem-secondary">State License</span>
 											</div>
-											<span class="license-status license-active">Active</span>
+											<span class="license-status" class:license-active={license.active && license.description !== "Expired"}>{license.description}</span>
 										</div>
 									{/each}
 								{:else}<div class="empty-msg">No licenses</div>{/if}
@@ -979,9 +1002,11 @@
 						</div>
 						<div class="modal-body">
 							<div class="vd-row"><span class="vd-label">Plate</span><span class="vd-value mono">{vehicleDetail.plate}</span></div>
+							{#if vehicleDetail.vin}<div class="vd-row"><span class="vd-label">VIN Number</span><span class="vd-value mono">{vehicleDetail.vin}</span></div>{/if}
 							<div class="vd-row"><span class="vd-label">Vehicle</span><span class="vd-value">{vehicleDetail.label || vehicleDetail.vehicle || vehicleDetail.model || 'Unknown'}</span></div>
 							{#if vehicleDetail.owner}<div class="vd-row"><span class="vd-label">Owner</span><span class="vd-value">{vehicleDetail.owner}</span></div>{/if}
-							{#if vehicleDetail.class}<div class="vd-row"><span class="vd-label">Class</span><span class="vd-value">{vehicleDetail.class}</span></div>{/if}
+							{#if vehicleDetail.class}<div class="vd-row"><span class="vd-label">Color</span><span class="vd-value">{vehicleDetail.class}</span></div>{/if}
+							{#if vehicleDetail.type}<div class="vd-row"><span class="vd-label">Registered in</span><span class="vd-value">{vehicleDetail.type}</span></div>{/if}
 							{#if vehicleDetail.status}<div class="vd-row"><span class="vd-label">Status</span><span class="vd-value vd-status-{vehicleDetail.status}">{vehicleDetail.status}</span></div>{/if}
 							{#if vehicleDetail.points !== undefined}<div class="vd-row"><span class="vd-label">Points</span><span class="vd-value" class:accent-red={vehicleDetail.points > 0}>{vehicleDetail.points}</span></div>{/if}
 							{#if vehicleDetail.stolen}<div class="vd-row"><span class="vd-label">Stolen</span><span class="vd-value accent-red">Yes</span></div>{/if}
@@ -1020,7 +1045,7 @@
 		<!-- ===== LIST VIEW ===== -->
 		<div class="list-view">
 			<div class="list-topbar">
-		<div class="search-box">
+				<div class="search-box">
 					<svg width="14" height="14" fill="rgba(255,255,255,0.35)" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
 					<input bind:value={searchQuery} type="text" placeholder="Search by name, ID, or phone..." />
 				</div>
@@ -1028,8 +1053,10 @@
 
 			{#if loading}
 				<div class="center-msg"><div class="spinner"></div><span>Loading citizens...</span></div>
-			{:else if citizens.length === 0}
+			{:else if citizens.length === 0 && searchQuery.trim() === ""}
 				<div class="center-msg"><span>No citizen records available.</span></div>
+			{:else if citizens.length === 0 && searchQuery.trim() !== ""}
+				<div class="center-msg"><span>No citizens match your search.</span></div>
 			{:else}
 				<div class="citizens-header">
 					<span></span>
@@ -1076,11 +1103,11 @@
 					<div class="center-msg"><span>No citizens match your search.</span></div>
 				{/if}
 				<Pagination
-					currentPage={citizenPage}
-					totalItems={allFilteredCitizens.length}
-					perPage={citizenPerPage}
-					onPageChange={(p) => { citizenPage = p; }}
-					onPerPageChange={(pp) => { citizenPerPage = pp; citizenPage = 1; }}
+						currentPage={citizenPage}
+						totalItems={citizenTotalRecords}
+						perPage={citizenPerPage}
+						onPageChange={(p) => { citizenPage = p; fetchCitizens(p, searchQuery); }}
+						onPerPageChange={(pp) => { citizenPerPage = pp; citizenPage = 1; fetchCitizens(1, searchQuery); }}
 				/>
 			{/if}
 		</div>
