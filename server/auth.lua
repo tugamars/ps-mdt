@@ -78,9 +78,12 @@ local function upsertProfileSession(src, action)
     local citizenid = ps.getIdentifier(src)
     if not citizenid then return end
 
+
     local fullName = ps.getPlayerName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
     local job = ps.getJobData and ps.getJobData(src) or nil
+
+    local callsign = ( job and job.metadata and job.metadata.callsign) or "NO CALLSIGN";
+    local badgeNumber = ( job and job.metadata and (job.metadata.badge_number or job.metadata.callsign) ) or "N/A";
     local jobName = job and job.name or ps.getJobName(src)
     local jobGrade = job and job.grade and job.grade.name or ps.getJobGradeName(src)
 
@@ -88,7 +91,7 @@ local function upsertProfileSession(src, action)
         citizenid,
         fullName,
         callsign,
-        callsign,
+        badgeNumber,
         jobGrade,
         jobName
     )
