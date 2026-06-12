@@ -17,13 +17,22 @@ ps.registerCallback(resourceName .. ':server:impoundVehicle', function(source, p
     plate = string.gsub(plate, "%s+", "")
 
     -- Find the vehicle
-    local vehicle = MySQL.single.await('SELECT id, citizenid, plate FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
+    local vehicle = MySQL.single.await(
+        ('SELECT %s AS id, %s AS citizenid, %s AS plate FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.id, TableMap.Vehicles.rawFields.citizenid,
+            TableMap.Vehicles.rawFields.plate, TableMap.Vehicles.table,
+            TableMap.Vehicles.rawFields.plate
+        ), { plate })
     if not vehicle then
         return { success = false, message = 'Vehicle not found' }
     end
 
     -- Set vehicle state to impounded (state = 2)
-    MySQL.update.await('UPDATE player_vehicles SET state = 2 WHERE plate = ?', { plate })
+    MySQL.update.await(
+        ('UPDATE %s SET %s = 2 WHERE %s = ?'):format(
+            TableMap.Vehicles.table, TableMap.Vehicles.rawFields.state,
+            TableMap.Vehicles.rawFields.plate
+        ), { plate })
 
     -- Store impound record
     local existing = MySQL.scalar.await('SELECT COUNT(*) FROM mdt_impound WHERE vehicleid = ?', { vehicle.id })
@@ -63,16 +72,30 @@ ps.registerCallback(resourceName .. ':server:releaseImpound', function(source, p
 
     plate = string.gsub(plate, "%s+", "")
 
-    local vehicle = MySQL.single.await('SELECT id, plate FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
+    local vehicle = MySQL.single.await(
+        ('SELECT %s AS id, %s AS plate FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.id, TableMap.Vehicles.rawFields.plate,
+            TableMap.Vehicles.table, TableMap.Vehicles.rawFields.plate
+        ), { plate })
     if not vehicle then
         return { success = false, message = 'Vehicle not found' }
     end
 
     -- Get full vehicle data before releasing (for spawning)
-    local fullVehicle = MySQL.single.await('SELECT id, vehicle, fuel, engine, body, plate FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
+    local fullVehicle = MySQL.single.await(
+        ('SELECT %s AS id, %s AS vehicle, %s AS fuel, %s AS engine, %s AS body, %s AS plate FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.id, TableMap.Vehicles.rawFields.vehicle,
+            TableMap.Vehicles.rawFields.fuel, TableMap.Vehicles.rawFields.engine,
+            TableMap.Vehicles.rawFields.body, TableMap.Vehicles.rawFields.plate,
+            TableMap.Vehicles.table, TableMap.Vehicles.rawFields.plate
+        ), { plate })
 
     -- Set vehicle state back to garaged (state = 1)
-    MySQL.update.await('UPDATE player_vehicles SET state = 1 WHERE plate = ?', { plate })
+    MySQL.update.await(
+        ('UPDATE %s SET %s = 1 WHERE %s = ?'):format(
+            TableMap.Vehicles.table, TableMap.Vehicles.rawFields.state,
+            TableMap.Vehicles.rawFields.plate
+        ), { plate })
 
     -- Remove impound record
     MySQL.query.await('DELETE FROM mdt_impound WHERE vehicleid = ?', { vehicle.id })
@@ -113,7 +136,11 @@ ps.registerCallback(resourceName .. ':server:getImpoundStatus', function(source,
 
     plate = string.gsub(plate, "%s+", "")
 
-    local vehicle = MySQL.single.await('SELECT id, state FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
+    local vehicle = MySQL.single.await(
+        ('SELECT %s AS id, %s AS state FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.id, TableMap.Vehicles.rawFields.state,
+            TableMap.Vehicles.table, TableMap.Vehicles.rawFields.plate
+        ), { plate })
     if not vehicle then
         return { success = false, message = 'Vehicle not found' }
     end

@@ -68,21 +68,31 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
     local src = source
     if not CheckAuth(src) then return end
 
-    local vehList = MySQL.query.await([[
+    local _V = TableMap.Vehicles
+    local vehList = MySQL.query.await(([[
         SELECT
-            pv.id,
-            pv.plate,
-            pv.vehicle,
-            pv.citizenid,
-            pv.mdt_vehicle_information AS information,
-            pv.mdt_vehicle_points AS points,
-            pv.mdt_vehicle_status AS status,
-            pv.mdt_vehicle_stolen AS stolen,
-            pv.mdt_vehicle_boloactive AS boloactive,
-            pv.mdt_vehicle_image AS image,
-            pv.state AS core_state
-        FROM player_vehicles pv
-    ]])
+            %s AS id,
+            %s AS plate,
+            %s AS vehicle,
+            %s as brand,
+            %s as model,
+            %s as color,
+            %s as stateRegistered,
+            %s AS citizenid,
+            %s AS information,
+            %s AS points,
+            %s AS status,
+            %s AS stolen,
+            %s AS boloactive,
+            %s AS image,
+            %s AS core_state
+        FROM %s %s
+    ]]):format(
+        _V.fields.id, _V.fields.plate, _V.fields.vehicle,  _V.fields.brand,  _V.fields.model,  _V.fields.color,  _V.fields.stateRegistered, _V.fields.citizenid,
+        _V.fields.information, _V.fields.points, _V.fields.status,
+        _V.fields.stolen, _V.fields.boloactive, _V.fields.image, _V.fields.state,
+        _V.table, _V.alias
+    ))
 
     local boloRows = MySQL.query.await('SELECT * FROM mdt_bolos WHERE type = ? AND status = ?', {'vehicle', 'active'})
     local reportIdsByPlate = {}
@@ -123,10 +133,10 @@ ps.registerCallback(resourceName .. ':server:GetVehicles', function(source)
         table.insert(vehicles, {
             id = v.id,
             model = v.vehicle,
-            label = vehicleData and vehicleData.name or 'Unknown Vehicle',
+            label = v.brand .. " "  .. v.model,
             plate = plate,
             owner = ps.getPlayerNameByIdentifier(v.citizenid) or 'Unknown',
-            class = formatLabel(vehicleData and vehicleData.category or 'Unknown'),
+            class = v.color or 'Unknown',
             type = formatLabel(vehicleData and vehicleData.type or 'Unknown'),
             flags = flags,
             image = (v.image and v.image ~= '' and v.image) or ('https://docs.fivem.net/vehicles/' .. v.vehicle .. '.webp'),
@@ -161,12 +171,21 @@ ps.registerCallback(resourceName .. ':server:UpdateVehicle', function(source, pa
         return { success = false, message = 'Missing plate' }
     end
 
-    local ownerRow = MySQL.single.await('SELECT citizenid FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
+    local ownerRow = MySQL.single.await(
+        ('SELECT %s AS citizenid FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.citizenid, TableMap.Vehicles.table,
+            TableMap.Vehicles.rawFields.plate
+        ), { plate })
     if not ownerRow or not ownerRow.citizenid then
         return { success = false, message = 'Vehicle not found' }
     end
 
-    local existing = MySQL.single.await('SELECT mdt_vehicle_points, mdt_vehicle_status, mdt_vehicle_information FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
+    local existing = MySQL.single.await(
+        ('SELECT %s AS points, %s AS status, %s AS information FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.points, TableMap.Vehicles.rawFields.status,
+            TableMap.Vehicles.rawFields.information, TableMap.Vehicles.table,
+            TableMap.Vehicles.rawFields.plate
+        ), { plate })
     local previousPoints = existing and tonumber(existing.mdt_vehicle_points) or 0
 
     local points = tonumber(payload.points)
@@ -189,17 +208,17 @@ ps.registerCallback(resourceName .. ':server:UpdateVehicle', function(source, pa
     local values = {}
 
     if payload.information ~= nil then
-        updates[#updates + 1] = 'mdt_vehicle_information = ?'
+        updates[#updates + 1] = TableMap.Vehicles.rawFields.information .. ' = ?'
         values[#values + 1] = payload.information
     end
 
     if points ~= nil then
-        updates[#updates + 1] = 'mdt_vehicle_points = ?'
+        updates[#updates + 1] = TableMap.Vehicles.rawFields.points .. ' = ?'
         values[#values + 1] = points
     end
 
     if status ~= nil then
-        updates[#updates + 1] = 'mdt_vehicle_status = ?'
+        updates[#updates + 1] = TableMap.Vehicles.rawFields.status .. ' = ?'
         values[#values + 1] = status
     end
 
@@ -209,7 +228,11 @@ ps.registerCallback(resourceName .. ':server:UpdateVehicle', function(source, pa
 
     values[#values + 1] = plate
 
-    MySQL.update.await(('UPDATE player_vehicles SET %s WHERE plate = ?'):format(table.concat(updates, ', ')), values)
+    MySQL.update.await(
+        ('UPDATE %s SET %s WHERE %s = ?'):format(
+            TableMap.Vehicles.table, table.concat(updates, ', '),
+            TableMap.Vehicles.rawFields.plate
+        ), values)
 
     if ps.auditLog then
         ps.auditLog(src, 'vehicle_updated', 'vehicle', plate, {
@@ -231,23 +254,34 @@ ps.registerCallback(resourceName .. ':server:GetVehicle', function(source, plate
         return { success = false, message = 'Missing plate' }
     end
 
-    local vehicleRow = MySQL.query.await([[
+    local _V = TableMap.Vehicles
+    local vehicleRow = MySQL.query.await(([[
         SELECT
-            pv.id,
-            pv.plate,
-            pv.vehicle,
-            pv.citizenid,
-            pv.mdt_vehicle_information AS information,
-            pv.mdt_vehicle_points AS points,
-            pv.mdt_vehicle_status AS status,
-            pv.mdt_vehicle_stolen AS stolen,
-            pv.mdt_vehicle_boloactive AS boloactive,
-            pv.mdt_vehicle_image AS image,
-            pv.state AS core_state
-        FROM player_vehicles pv
-        WHERE pv.plate = ?
+            %s AS id,
+            %s AS plate,
+            %s AS vehicle,
+            %s as brand,
+            %s as model,
+            %s as color,
+            %s as stateRegistered,
+            %s AS citizenid,
+            %s AS information,
+            %s AS points,
+            %s AS status,
+            %s AS stolen,
+            %s AS boloactive,
+            %s AS image,
+            %s as vin,
+            %s AS core_state
+        FROM %s %s
+        WHERE %s = ?
         LIMIT 1
-    ]], { plate })
+    ]]):format(
+        _V.fields.id, _V.fields.plate, _V.fields.vehicle,  _V.fields.brand,  _V.fields.model,  _V.fields.color,  _V.fields.stateRegistered, _V.fields.citizenid,
+        _V.fields.information, _V.fields.points, _V.fields.status,
+        _V.fields.stolen, _V.fields.boloactive, _V.fields.image, _V.fields.vinNumber, _V.fields.state,
+        _V.table, _V.alias, _V.fields.plate
+    ), { plate })
 
     if not vehicleRow or not vehicleRow[1] then
         return { success = false, message = 'Vehicle not found' }
@@ -285,16 +319,17 @@ ps.registerCallback(resourceName .. ':server:GetVehicle', function(source, plate
         vehicle = {
             id = row.id,
             model = row.vehicle,
-            label = vehicleData and vehicleData.name or 'Unknown Vehicle',
-            brand = vehicleData and vehicleData.brand or nil,
+            label = row.brand .. " "  .. row.model,
+            brand = row.brand,
             plate = plateUpper,
             owner = ps.getPlayerNameByIdentifier(row.citizenid) or 'Unknown',
-            class = formatLabel(vehicleData and vehicleData.category or 'Unknown'),
-            type = formatLabel(vehicleData and vehicleData.type or 'Unknown'),
+            class = formatLabel(row.color or 'Unknown'),
+            type = formatLabel(row.stateRegistered or 'Unknown'),
+            vin = row.vin or 'N/A',
             image = (row.image and row.image ~= '' and row.image) or ('https://docs.fivem.net/vehicles/' .. row.vehicle .. '.webp'),
             information = row.information or '',
             points = tonumber(row.points) or 0,
-            status = row.status or 'valid',
+            status = row.status or 'Valid',
             core_state = tonumber(row.core_state) or 0,
             stolen = row.stolen == 1,
             boloactive = row.boloactive == 1,

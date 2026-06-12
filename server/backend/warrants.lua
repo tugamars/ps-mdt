@@ -46,7 +46,8 @@ ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source
     local src = source
     if not CheckAuth(src) then return {} end
 
-    local rows = MySQL.query.await([[
+    local _P = TableMap.Players
+    local rows = MySQL.query.await(([[
         SELECT
             w.reportid,
             w.citizenid,
@@ -54,13 +55,18 @@ ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source
             w.misdemeanors,
             w.infractions,
             w.expirydate,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname
+            %s AS firstname,
+            %s AS lastname
         FROM mdt_reports_warrants w
-        LEFT JOIN players p ON p.citizenid COLLATE utf8mb4_general_ci = w.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN %s %s ON %s = w.citizenid COLLATE utf8mb4_general_ci
         WHERE w.expirydate >= NOW()
         ORDER BY w.expirydate ASC
-    ]])
+    ]]):format(
+        _P.fields.firstname,
+        _P.fields.lastname,
+        _P.table, _P.alias,
+        _P.alias .. '.' .. _P.joinKey
+    ))
 
     local results = {}
     for _, row in ipairs(rows or {}) do

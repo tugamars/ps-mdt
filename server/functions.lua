@@ -21,6 +21,10 @@ function IsPoliceJob(jobName, jobType)
     return false
 end
 
+function GetPoliceJobs()
+    return Config.PoliceJobs or {}, Config.PoliceJobType or "leo"
+end
+
 --- Ensure an MDT profile exists for a citizen. Resolves name from online player or DB if offline.
 ---@param citizenid string -- The citizen ID to ensure a profile for
 ---@return boolean -- true if profile exists or was created, false on failure
@@ -54,16 +58,21 @@ function EnsureProfileExists(citizenid)
         return false
     end
 
-    -- Fallback: resolve from players table (offline player)
-    local row = MySQL.single.await('SELECT charinfo, metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    -- Fallback: resolve from players/characters table (offline player)
+    local row = MySQL.single.await(
+        ('SELECT %s AS firstname, %s AS lastname, %s AS metadata FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Players.rawFields.firstname, TableMap.Players.rawFields.lastname,
+            TableMap.Players.rawFields.metadata,
+            TableMap.Players.table, TableMap.Players.joinKey
+        ), { citizenid })
     if not row then
         ps.warn('No player data found for citizenid: ' .. citizenid)
         return false
     end
 
-    local charinfo = row.charinfo and json.decode(row.charinfo) or {}
+    -- firstname/lastname are already resolved fields (direct or JSON-extracted)
+    local fullname = ((row.firstname or '') .. ' ' .. (row.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
     local metadata = row.metadata and json.decode(row.metadata) or {}
-    local fullname = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
     local callsign = metadata.callsign
     if callsign == 'NO CALLSIGN' or callsign == '' then callsign = nil end
 
@@ -94,7 +103,7 @@ function EnsureProfileData(citizenid, fullname, callsign, badgeNumber, rank, dep
             SET fullname = COALESCE(?, fullname),
                 callsign = COALESCE(?, callsign),
                 badge_number = COALESCE(?, badge_number),
-                rank = COALESCE(?, rank),
+                `rank` = COALESCE(?, `rank`),
                 department = COALESCE(?, department)
             WHERE citizenid = ?
         ]], {
@@ -109,7 +118,7 @@ function EnsureProfileData(citizenid, fullname, callsign, badgeNumber, rank, dep
     end
 
     local result = MySQL.insert.await([[INSERT INTO mdt_profiles
-        (citizenid, fullname, callsign, badge_number, rank, department)
+        (citizenid, fullname, callsign, badge_number, `rank`, department)
         VALUES (?, ?, ?, ?, ?, ?)
     ]], {
         citizenid,
@@ -137,7 +146,11 @@ function GetVehicleOwner(plate)
     ps.debug('Fetching vehicle owner for plate: ' .. plate)
 
     -- Fetch the owner
-    local result = MySQL.scalar.await('SELECT citizenid FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
+    local result = MySQL.scalar.await(
+        ('SELECT %s FROM %s WHERE %s = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.citizenid, TableMap.Vehicles.table,
+            TableMap.Vehicles.rawFields.plate
+        ), { plate })
     ps.debug('Vehicle owner result: ' .. tostring(result))
 
     if result then
@@ -210,7 +223,11 @@ function GetWarrantStatus(plate)
     plate = string.gsub(plate, "%s+", "")
     plate = string.upper(plate)
 
-    local ownerCid = MySQL.scalar.await('SELECT citizenid FROM player_vehicles WHERE UPPER(REPLACE(plate, \' \', \'\')) = ? LIMIT 1', { plate })
+    local ownerCid = MySQL.scalar.await(
+        ('SELECT %s FROM %s WHERE UPPER(REPLACE(%s, \' \', \'\')) = ? LIMIT 1'):format(
+            TableMap.Vehicles.rawFields.citizenid, TableMap.Vehicles.table,
+            TableMap.Vehicles.rawFields.plate
+        ), { plate })
     if not ownerCid then return false, "", "" end
 
     local ownerName = ps.getPlayerNameByIdentifier(ownerCid) or "Unknown"
@@ -286,13 +303,18 @@ function getCitizens(source)
         return {}
     end
 
-    local citizens = MySQL.query.await([[
-        SELECT p.citizenid,
-               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) AS firstname,
-               JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) AS lastname
-        FROM players p
+    local citizens = MySQL.query.await(([[
+        SELECT %s AS citizenid,
+               %s AS firstname,
+               %s AS lastname
+        FROM %s %s
         LIMIT 50
-    ]], {})
+    ]]):format(
+        TableMap.Players.fields.citizenid,
+        TableMap.Players.fields.firstname,
+        TableMap.Players.fields.lastname,
+        TableMap.Players.table, TableMap.Players.alias
+    ), {})
 
     if not citizens or #citizens == 0 then return {} end
 

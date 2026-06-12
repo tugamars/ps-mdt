@@ -347,19 +347,23 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
 
         if #cidList > 0 then
             local placeholders = string.rep('?,', #cidList):sub(1, -2)
+            local _P = TableMap.Players
             local lookupQuery = ([[
                 SELECT
-                    p.citizenid,
-                    CONCAT(
-                        JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')),
-                        ' ',
-                        JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
-                    ) as fullname,
-                    mp.profilepicture as image
-                FROM players p
-                LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = p.citizenid COLLATE utf8mb4_general_ci
-                WHERE p.citizenid COLLATE utf8mb4_general_ci IN (%s)
-            ]]):format(placeholders)
+                    %s AS citizenid,
+                    %s AS fullname,
+                    mp.profilepicture AS image
+                FROM %s %s
+                LEFT JOIN mdt_profiles mp ON %s
+                WHERE %s COLLATE utf8mb4_general_ci IN (%s)
+            ]]):format(
+                _P.fields.citizenid,
+                TableMap.fullNameConcat(),
+                _P.table, _P.alias,
+                TableMap.joinCondition('mp'),
+                _P.fields.citizenid,
+                placeholders
+            )
 
             local lookupRows = MySQL.query.await(lookupQuery, cidList)
             local cidInfo = {}
@@ -370,8 +374,8 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
             end
 
             for _, entry in ipairs(involved) do
-                if entry and entry.citizenid and cidInfo[entry.citizenid] then
-                    local info = cidInfo[entry.citizenid]
+                if entry and entry.citizenid and cidInfo[tonumber(entry.citizenid)] then
+                    local info = cidInfo[tonumber(entry.citizenid)]
                     entry.name = info.name or entry.name
                     entry.image = info.image
                 end
@@ -403,28 +407,34 @@ ps.registerCallback(resourceName .. ':server:searchPlayers', function(source, qu
     end
 
     local likeQuery = '%' .. query .. '%'
+    local _P = TableMap.Players
 
-    local rows = MySQL.query.await([[
+    local rows = MySQL.query.await(([[
         SELECT
-            p.citizenid,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) as firstname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) as lastname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.metadata, '$.fingerprint')) as fingerprint,
+            %s AS citizenid,
+            %s AS firstname,
+            %s AS lastname,
+            %s AS fingerprint,
             mp.profilepicture
-        FROM players p
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = p.citizenid COLLATE utf8mb4_general_ci
+        FROM %s %s
+        LEFT JOIN mdt_profiles mp ON %s
         WHERE (
-            p.citizenid LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) LIKE ?
-            OR CONCAT(
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')),
-                ' ',
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
-            ) LIKE ?
+            %s LIKE ?
+            OR %s LIKE ?
+            OR %s LIKE ?
+            OR %s LIKE ?
         )
         LIMIT 25
-    ]], { likeQuery, likeQuery, likeQuery, likeQuery })
+    ]]):format(
+        _P.fields.citizenid, _P.fields.firstname, _P.fields.lastname,
+        _P.fields.fingerprint,
+        _P.table, _P.alias,
+        TableMap.joinCondition('mp'),
+        _P.fields.citizenid,
+        _P.fields.firstname,
+        _P.fields.lastname,
+        TableMap.fullNameConcat()
+    ), { likeQuery, likeQuery, likeQuery, likeQuery })
 
     local results = {}
     for _, row in ipairs(rows or {}) do
@@ -462,31 +472,62 @@ ps.registerCallback(resourceName .. ':server:searchOfficers', function(source, q
     end
 
     local likeQuery = '%' .. query .. '%'
+    local jobs, jobtype = GetPoliceJobs();
 
-    local rows = MySQL.query.await([[
+    local rows = MySQL.query.await(([[
+        SELECT e.citizen_id, e.citizen_name, e.metadata, b.name as jobname, r.label as jobgrade, b.type as jobtype FROM `bs_employees` as e
+        INNER JOIN bs_businesses as b ON b.id = e.business_id
+        INNER JOIN bs_ranks as r ON r.id = e.rank_id
+        WHERE b.type = ?;
+    ]]), {jobtype});
+
+    local results = {}
+    for _, row in ipairs(rows or {}) do
+
+            local metadata=row.metadata or {};
+            table.insert(results, {
+                id = row.citizen_id,
+                citizenid = row.citizen_id,
+                fullName = row.citizen_name,
+                badgeId = metadata.badge_number or metadata.callsign or nil,
+                rank = row.jobgrade or nil
+            })
+    end
+
+    return results
+    --[[
+    local _P = TableMap.Players
+
+    local rows = MySQL.query.await(([[
         SELECT
-            p.citizenid,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) as firstname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) as lastname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.name')) as jobname,
-            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.grade.name')) as jobgrade,
-            JSON_UNQUOTE(JSON_EXTRACT(p.job, '$.type')) as jobtype,
-            mp.callsign as callsign
-        FROM players p
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = p.citizenid COLLATE utf8mb4_general_ci
+            %s AS citizenid,
+            %s AS firstname,
+            %s AS lastname,
+            %s AS jobname,
+            %s AS jobgrade,
+            %s AS jobtype,
+            mp.callsign AS callsign
+        FROM %s %s
+        LEFT JOIN mdt_profiles mp ON %s
         WHERE (
-            p.citizenid LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')) LIKE ?
-            OR JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname')) LIKE ?
-            OR CONCAT(
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')),
-                ' ',
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
-            ) LIKE ?
+            %s LIKE ?
+            OR %s LIKE ?
+            OR %s LIKE ?
+            OR %s LIKE ?
             OR mp.callsign COLLATE utf8mb4_general_ci LIKE ?
         )
         LIMIT 50
-    ]], { likeQuery, likeQuery, likeQuery, likeQuery, likeQuery })
+    ]]--[[):format(
+        _P.fields.citizenid, _P.fields.firstname, _P.fields.lastname,
+        _P.fields.jobname, _P.fields.jobgrade, _P.fields.jobtype,
+        _P.table, _P.alias,
+        TableMap.joinCondition('mp'),
+        _P.fields.citizenid,
+        _P.fields.firstname,
+        _P.fields.lastname,
+        TableMap.fullNameConcat()
+    ), { likeQuery, likeQuery, likeQuery, likeQuery, likeQuery })
+
 
     local results = {}
     for _, row in ipairs(rows or {}) do
@@ -503,6 +544,7 @@ ps.registerCallback(resourceName .. ':server:searchOfficers', function(source, q
     end
 
     return results
+    --]]
 end)
 
 ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(source, query)
@@ -514,29 +556,31 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
     end
 
     local likeQuery = '%' .. query .. '%'
+    local _P = TableMap.Players
+    local _V = TableMap.Vehicles
 
-    local rows = MySQL.query.await([[
+    local rows = MySQL.query.await(([[
         SELECT
-            pv.plate,
-            pv.vehicle,
-            pv.citizenid,
-            CONCAT(
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')),
-                ' ',
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
-            ) as owner_name
-        FROM player_vehicles pv
-        LEFT JOIN players p ON p.citizenid COLLATE utf8mb4_general_ci = pv.citizenid COLLATE utf8mb4_general_ci
+            %s AS plate,
+            %s AS vehicle,
+            %s AS citizenid,
+            %s AS owner_name
+        FROM %s %s
+        LEFT JOIN %s %s ON %s COLLATE utf8mb4_general_ci = %s COLLATE utf8mb4_general_ci
         WHERE (
-            pv.plate LIKE ?
-            OR CONCAT(
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.firstname')),
-                ' ',
-                JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, '$.lastname'))
-            ) LIKE ?
+            %s LIKE ?
+            OR %s LIKE ?
         )
         LIMIT 25
-    ]], { likeQuery, likeQuery })
+    ]]):format(
+        _V.fields.plate, _V.fields.vehicle, _V.fields.citizenid,
+        TableMap.fullNameConcat(),
+        _V.table, _V.alias,
+        _P.table, _P.alias,
+        _P.fields.citizenid, _V.fields.citizenid,
+        _V.fields.plate,
+        TableMap.fullNameConcat()
+    ), { likeQuery, likeQuery })
 
     local results = {}
     for _, row in ipairs(rows or {}) do

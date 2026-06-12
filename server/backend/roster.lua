@@ -52,8 +52,12 @@ local function buildRosterFromQbx()
         end
     end
 
-    for _, row in ipairs(MySQL.query.await('SELECT citizenid, job FROM players', {}) or {}) do
-        local job = row.job and json.decode(row.job) or {}
+    for _, row in ipairs(MySQL.query.await(
+        ('SELECT %s AS citizenid, %s AS job_raw FROM %s'):format(
+            TableMap.Players.rawFields.citizenid, TableMap.Players.rawFields.job,
+            TableMap.Players.table
+        ), {}) or {}) do
+        local job = row.job_raw and json.decode(row.job_raw) or { name = row.job_raw }
         if IsPoliceJob(job.name, job.type) then
             members[row.citizenid] = true
         end
@@ -106,6 +110,7 @@ end
 
 local function checkDuty(citizenid)
     local player = ps.getPlayerByIdentifier(citizenid)
+
     if not player then return 'Off Duty' end
 
     local src = player.source or (player.PlayerData and player.PlayerData.source)
@@ -118,6 +123,7 @@ local function checkDuty(citizenid)
 end
 
 ps.registerCallback('ps-mdt:server:getRosterList', function(source)
+    --[[
     if GetResourceState('qbx_core') == 'started' and exports['qbx_core'] then
         return buildRosterFromQbx()
     end
@@ -142,19 +148,98 @@ ps.registerCallback('ps-mdt:server:getRosterList', function(source)
             end
         end
     end
+    --]]
 
-    for _, citizen in pairs(MySQL.query.await('SELECT citizenid, charinfo, job, metadata FROM players', {}) or {}) do
+    local jobType = ps.getJobData(source, "type") or "other";
+
+    local jobsTable = ps.getJobTable();
+
+    local rosterPrelim={};
+
+    for k,v in pairs(jobsTable) do
+        if(v.type == jobType) then
+            local employees = ps.getJobEmployees(k);
+
+            for j, l in ipairs(employees) do
+                rosterPrelim[#rosterPrelim+1] = l;
+            end
+        end
+    end
+
+    local rosterList = {};
+    local activeUnits = {};
+
+    for k,v in ipairs(rosterPrelim) do
+        local citizenid = v.citizenid;
+        local callsign = v.callsign or 'N/A';
+        local firstName = v.firstName or 'N/A';
+        local lastName = v.lastName or 'N/A';
+        local rank = v.rank or 'Officer';
+        local department = v.department or 'police';
+        local status = checkDuty(citizenid);
+        local onlinePlayer = ps.getPlayerByIdentifier(citizenid);
+        local onlineSrc = onlinePlayer and (onlinePlayer.source or (onlinePlayer.PlayerData and onlinePlayer.PlayerData.source)) or nil;
+
+        rosterList[#rosterList + 1] = {
+            id = #rosterList + 1,
+            citizenid = citizenid,
+            callsign = callsign,
+            firstName = firstName,
+            lastName = lastName,
+            rank = rank,
+            department = department,
+            status = status,
+            certifications = getCertifications(citizenid),
+            badgeNumber = callsign,
+            radioChannel = getRadioChannel(onlineSrc)
+        }
+
+        if status == 'On Duty' then
+            activeUnits[#activeUnits + 1] = {
+                id = rosterList[#rosterList].id,
+                badgeNumber = rosterList[#rosterList].badgeNumber,
+                callsign = rosterList[#rosterList].callsign,
+                firstName = rosterList[#rosterList].firstName,
+                lastName = rosterList[#rosterList].lastName,
+            }
+        end
+    end
+
+    --[[
+    local _P = TableMap.Players
+    for _, citizen in pairs(MySQL.query.await(
+        ('SELECT %s AS citizenid, %s AS firstname, %s AS lastname, %s AS jobname, %s AS jobtype, %s AS job_raw, %s AS metadata FROM %s'):format(
+            _P.rawFields.citizenid,
+            _P.rawFields.firstname, _P.rawFields.lastname,
+            _P.rawFields.job,   -- jobname (plain string for NDCore, or JSON col for QBCore)
+            _P.rawFields.job,   -- jobtype (same source; decoded below)
+            _P.rawFields.job,   -- job_raw for full JSON decode on QBCore
+            _P.rawFields.metadata,
+            _P.table
+        ), {}) or {}) do
         local citizenid = citizen.citizenid
-        local charinfo = citizen.charinfo and json.decode(citizen.charinfo) or {}
-        local job = citizen.job and json.decode(citizen.job) or {}
+        -- For QBCore the job_raw column is JSON; for NDCore it's a plain string job name
+        local job = {}
+        if citizen.job_raw then
+            local ok, decoded = pcall(json.decode, citizen.job_raw)
+            if ok and type(decoded) == 'table' then
+                job = decoded
+            else
+                -- NDCore: job_raw is a plain string (job name)
+                job = { name = citizen.job_raw, type = nil }
+            end
+        end
         local metadata = citizen.metadata and json.decode(citizen.metadata) or {}
-        local jobName = job.name and tostring(job.name) or nil
-        local isPolice = (jobName and jobLookup[jobName]) or (job.type and jobType and tostring(job.type) == jobType)
+        local jobName = job.name or citizen.jobname or nil
+        if type(jobName) == 'string' then jobName = tostring(jobName) end
+        local jobType = job.type or nil
+        local isPolice = (jobName and jobLookup[jobName]) or (jobType and jobType and tostring(jobType) == jobType)
         if isPolice then
             local employee = employees[citizenid] or {}
             local callsign = metadata.callsign or 'N/A'
-            local firstName = charinfo.firstname or 'N/A'
-            local lastName = charinfo.lastname or 'N/A'
+            -- firstname/lastname resolved directly from mapping (no charinfo decode needed)
+            local firstName = citizen.firstname or 'N/A'
+            local lastName = citizen.lastname or 'N/A'
             local rank = job.grade and job.grade.name or employee.grade and ps.getSharedJobGradeData(jobName or 'police', employee.grade, 'name') or 'Officer'
             local status = checkDuty(citizenid)
             local onlinePlayer = ps.getPlayerByIdentifier(citizenid)
@@ -183,6 +268,7 @@ ps.registerCallback('ps-mdt:server:getRosterList', function(source)
             end
         end
     end
+    --]]
     return {
         roster = rosterList,
         activeUnits = activeUnits
