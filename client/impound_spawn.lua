@@ -1,3 +1,4 @@
+--[[
 local resourceName = tostring(GetCurrentResourceName())
 local QBCore = exports['qb-core']:GetCoreObject()
 
@@ -111,3 +112,4 @@ end)
 RegisterNetEvent('ps-mdt:client:TakeOutImpound', function(data)
     TriggerEvent(resourceName .. ':client:TakeOutImpound', data)
 end)
+--]]
