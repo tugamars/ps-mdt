@@ -50,6 +50,7 @@
 		arrests: number;
 		flags: string[];
 		image?: string;
+		tags?: string[];
 		notes?: string;
 		licenses?: {
 			driver?: boolean;
@@ -124,6 +125,105 @@
 
 	let newNote=$state("Enter note here...");
 
+	let tagMenuOpen = $state(false);
+	let tagSaving = $state<string | null>(null);
+	let customTagInput = $state("");
+
+	let availableTags=[];
+	let availableTagsByName = {};
+
+	fetchNui(NUI_EVENTS.CITIZEN.GET_AVAILABLE_TAGS)
+			.then((result) => {
+				if (result && result.data) {
+					availableTags = Array.isArray(result.data) ? result.data : [];
+					availableTagsByName = availableTags.reduce((acc, tag) => {
+						acc[tag.name] = tag;
+						return acc;
+					}, {});
+				} else {
+					availableTags = [];
+					availableTagsByName = {};
+				}
+
+			})
+			.catch((err) => {
+				console.error("Error loading tags:", err);
+				availableTags = [];
+				availableTagsByName = {};
+			});
+
+
+	function openTagMenu() {
+		customTagInput = "";
+		tagMenuOpen = true;
+	}
+
+	function hasTag(tag: string): boolean {
+		return (selectedProfile?.tags ?? []).includes(tag);
+	}
+
+	async function addCitizenTag(tag: string) {
+		console.log("Add citizen tag", tag);
+		const clean = tag.trim();
+		if (!clean || !selectedProfile || tagSaving) return;
+		if (hasTag(clean)) {
+			globalNotifications.error("Tag already exists");
+			return;
+		}
+		tagSaving = clean;
+		try {
+			const result = await fetchNui<{ success: boolean; message?: string }>(
+					NUI_EVENTS.CITIZEN.ADD_CITIZEN_TAG,
+					{ citizenid: selectedProfile.citizenid, tag: clean },
+					{ success: true },
+			);
+			if (result.success) {
+				selectedProfile = { ...selectedProfile, tags: [...(selectedProfile.tags ?? []), clean] };
+				globalNotifications.success("Tag added");
+			} else {
+				globalNotifications.error(result.message || "Failed to add tag");
+			}
+		} catch {
+			globalNotifications.error("Failed to add tag");
+		}
+		tagSaving = null;
+	}
+
+	async function removeCitizenTag(tag: string) {
+		console.log("Remove citizen tag", tag);
+		if (!selectedProfile || tagSaving) return;
+		tagSaving = tag;
+		try {
+			const result = await fetchNui<{ success: boolean; message?: string }>(
+					NUI_EVENTS.CITIZEN.REMOVE_CITIZEN_TAG,
+					{ citizenid: selectedProfile.citizenid, tag },
+					{ success: true },
+			);
+			if (result.success) {
+				selectedProfile = { ...selectedProfile, tags: (selectedProfile.tags ?? []).filter((t) => t !== tag) };
+				globalNotifications.success("Tag removed");
+			} else {
+				globalNotifications.error(result.message || "Failed to remove tag");
+			}
+		} catch {
+			globalNotifications.error("Failed to remove tag");
+		}
+		tagSaving = null;
+	}
+
+	function toggleTag(tag: string) {
+		if (hasTag(tag)) removeCitizenTag(tag);
+		else addCitizenTag(tag);
+	}
+
+	async function addCustomTag() {
+		const clean = customTagInput.trim();
+		if (!clean) return;
+		await addCitizenTag(clean);
+		customTagInput = "";
+	}
+
+
 	// This function will now accept page and search parameters
 	async function fetchCitizens(page: number, search: string) {
 		loading = true;
@@ -186,6 +286,7 @@
 	useNuiEvent<Citizen[]>(NUI_EVENTS.CITIZEN.UPDATE_CITIZENS, (data) => {
 		if (data) citizens = data;
 	});
+
 
 	function getPillClass(type: string): string {
 		switch (type) {
@@ -772,6 +873,10 @@
 		return `${coords.x.toFixed(1)}, ${coords.y.toFixed(1)}, ${coords.z.toFixed(1)}`;
 	}
 
+	function getTagColor(tag){
+		return availableTagsByName[tag]?.color || "#FFFFFF";
+	}
+
 </script>
 
 <div class="page">
@@ -887,6 +992,34 @@
 							{/if}
 						</div>-->
 						<!--<div class="detail-row"><span class="dlabel">Occupations</span><span class="dvalue">{formatOccupations(selectedProfile.occupations)}</span></div>-->
+					</div>
+
+					<!-- Tags -->
+					<div class="panel tags-panel">
+						<div class="panel-title">
+							Tags
+							{#if !isEMS}
+								<button class="issue-license-btn" onclick={openTagMenu} aria-label="Manage tags" title="Manage tags">
+									<span class="material-icons" style="font-size: 13px;">add</span> Add
+								</button>
+							{/if}
+						</div>
+						<div class="tags-value">
+							{#if (selectedProfile.tags ?? []).length > 0}
+								{#each selectedProfile.tags ?? [] as tag}
+									<span class="flag tag-pill" style="background: {getTagColor(tag)}22; color: {getTagColor(tag)}; border: 1px solid {getTagColor(tag)}33;">
+										{tag}
+										{#if !isEMS}
+											<!-- svelte-ignore a11y_click_events_have_key_events -->
+											<!-- svelte-ignore a11y_no_static_element_interactions -->
+											<span class="tag-remove" title="Remove tag" onclick={() => removeCitizenTag(tag)}>×</span>
+										{/if}
+									</span>
+								{/each}
+							{:else}
+								<span class="tag-empty">No active tags</span>
+							{/if}
+						</div>
 					</div>
 
 				</div>
@@ -1362,6 +1495,39 @@
 			</div>
 		{/if}
 
+		<!-- Tags Modal -->
+		{#if tagMenuOpen}
+			<div class="modal-overlay" onclick={() => (tagMenuOpen = false)}>
+				<div class="modal-card" onclick={(e) => e.stopPropagation()}>
+					<div class="modal-header">
+						<h3>Manage Tags</h3>
+						<button class="modal-close" onclick={() => (tagMenuOpen = false)}>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						</button>
+					</div>
+					<div class="modal-body license-modal-body">
+						{#each availableTags as preset}
+							<div class="license-modal-row">
+								<div class="license-modal-info">
+									<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+										<div style="display: flex; align-items: center; gap: 6px;">
+											<span class="tag-dot" style="background: {preset.color}22; border: 1px solid {preset.color}33;"></span>
+											<span class="license-modal-name">{preset.name}</span>
+										</div>
+									</div>
+								</div>
+								<label class="toggle">
+									<input type="checkbox" checked={hasTag(preset.name)} disabled={tagSaving === preset.name} onchange={() => toggleTag(preset.name)} />
+									<span class="toggle-track"></span>
+								</label>
+							</div>
+						{/each}
+
+					</div>
+				</div>
+			</div>
+		{/if}
+
 	{:else}
 		<!-- ===== LIST VIEW ===== -->
 		<div class="list-view">
@@ -1388,6 +1554,7 @@
 					<span>DOB</span>
 					<span>Stats</span>
 					<span>Flags</span>
+					<span>Tags</span>
 				</div>
 				<div class="citizens-table">
 					{#each filteredCitizens as citizen (citizen.id)}
@@ -1417,6 +1584,14 @@
 									<span class="flag flag-more">+{citizen.flags.length - 3}</span>
 								{/if}
 							</div>
+							<div class="citizen-flags-cell">
+								{#each citizen.tags.slice(0, 3) as tag}
+									<span class="flag" style="background: {getTagColor(tag)}22; color: {getTagColor(tag)}; border: 1px solid {getTagColor(tag)}33;" >{tag}</span>
+								{/each}
+								{#if citizen.flags.length > 3}
+									<span class="flag flag-more">+{citizen.tags.length - 3}</span>
+								{/if}
+							</div>
 						</button>
 					{/each}
 				</div>
@@ -1440,6 +1615,34 @@
 <style>
 	.page { height: 100%; display: flex; flex-direction: column; background: var(--card-dark-bg); overflow: hidden; }
 
+
+	/* ── Photo URL Modal ── */
+	.photo-modal { width: min(380px, 92vw); }
+	.photo-modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+	.photo-form-group { display: flex; align-items: center; flex-direction: column; gap: 4px; }
+	.photo-label {
+		color: rgba(255, 255, 255, 0.35);
+		font-size: 9px;
+		font-weight: 600;
+		margin-top: 5px;
+		text-transform: uppercase;
+		letter-spacing: 0.6px;
+	}
+	.photo-input {
+		display: flex;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.06);
+		border-radius: 3px;
+		padding: 5px 8px;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 11px;
+		transition: border-color 0.1s;
+		font-family: inherit;
+		width: 90%;
+	}
+	.photo-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.1); }
+	.photo-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+
 	/* ===== LIST VIEW ===== */
 	.list-view { display: flex; flex-direction: column; height: 100%; }
 	.list-topbar { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 48px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
@@ -1447,12 +1650,12 @@
 	.search-box input { flex: 1; background: none; border: none; color: rgba(255,255,255,0.85); font-size: 12px; outline: none; }
 	.search-box input::placeholder { color: rgba(255,255,255,0.25); }
 
-	.citizens-header { display: grid; grid-template-columns: 36px 1.5fr 1fr 1fr 0.6fr 0.8fr 1.2fr 1.5fr; gap: 12px; padding: 8px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.3); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
+	.citizens-header { display: grid; grid-template-columns: 36px 1.5fr 1fr 1fr 0.6fr 0.8fr 1.2fr 1.5fr 1.5fr; gap: 12px; padding: 8px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.3); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; flex-shrink: 0; }
 	.citizens-table { flex: 1; overflow-y: auto; padding: 2px 10px; display: flex; flex-direction: column; gap: 0; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; min-height: 0; }
 	.citizens-table::-webkit-scrollbar { width: 3px; }
 	.citizens-table::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
 
-	.citizen-row { display: grid; grid-template-columns: 36px 1.5fr 1fr 1fr 0.6fr 0.8fr 1.2fr 1.5fr; align-items: center; gap: 12px; padding: 8px 10px; background: transparent; border: none; border-radius: 4px; cursor: pointer; transition: background 0.1s; text-align: left; font: inherit; color: inherit; width: 100%; }
+	.citizen-row { display: grid; grid-template-columns: 36px 1.5fr 1fr 1fr 0.6fr 0.8fr 1.2fr 1.5fr 1.5fr; align-items: center; gap: 12px; padding: 8px 10px; background: transparent; border: none; border-radius: 4px; cursor: pointer; transition: background 0.1s; text-align: left; font: inherit; color: inherit; width: 100%; }
 	.citizen-row:hover { background: rgba(255,255,255,0.03); }
 
 	.citizen-avatar { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
@@ -1679,5 +1882,16 @@
 	.panel-tab-btn .cnt { background: rgba(96,165,250,0.1); color: #93c5fd; }
 
 	.notes-input { width: 100%; font-size: 8pt; padding: 5px; }
+
+
+	/* ── Citizen Tags ── */
+	.tags-panel .panel-title { margin-bottom: 8px; }
+	.tags-value { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+	.tag-empty { color: rgba(255,255,255,0.3); font-size: 11px; }
+	.tag-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 7px; }
+	.tag-remove { cursor: pointer; font-size: 13px; line-height: 1; opacity: 0.55; transition: opacity 0.12s; margin-left: 1px; }
+	.tag-remove:hover { opacity: 1; }
+	.tag-group-label { padding: 8px 16px 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.35); }
+	.tag-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; padding: 0; border: none; }
 
 </style>

@@ -265,7 +265,7 @@ CreateThread(function()
         CREATE TABLE IF NOT EXISTS `mdt_tags` (
             `id` INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
             `name` VARCHAR(25) NOT NULL,
-            `type` ENUM('officer','report','both') NOT NULL DEFAULT 'officer',
+            `type` ENUM("officer","report","all","citizen") NOT NULL DEFAULT 'officer',
             `color` VARCHAR(7) NOT NULL DEFAULT '#6b7280',
             `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`),
@@ -275,11 +275,8 @@ CreateThread(function()
 
     -- Fix ENUM if table was created with old 'citizen' value
     pcall(MySQL.query.await, [[
-        ALTER TABLE `mdt_tags` MODIFY COLUMN `type` ENUM('officer','report','both') NOT NULL DEFAULT 'officer'
+        ALTER TABLE `mdt_tags` MODIFY COLUMN `type` ENUM("officer","report","all","citizen") NOT NULL DEFAULT 'officer'
     ]])
-    -- Migrate any old 'citizen' rows to 'officer'
-    pcall(MySQL.query.await, [[UPDATE `mdt_tags` SET `type` = 'officer' WHERE `type` = 'citizen']])
-
     -- Seed default tags if table is empty
     local count = MySQL.scalar.await('SELECT COUNT(*) FROM mdt_tags')
     if (tonumber(count) or 0) == 0 then

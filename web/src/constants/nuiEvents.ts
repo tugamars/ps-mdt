@@ -86,6 +86,9 @@ export const NUI_EVENTS = {
 		GET_PROPERTY: "getProperty",
 		SET_WAYPOINT: "setWaypoint",
 		ADD_CITIZEN_NOTE: "addCitizenNote",
+		GET_AVAILABLE_TAGS : "getCitizenAvailableTags",
+		ADD_CITIZEN_TAG: "addCitizenTag",
+		REMOVE_CITIZEN_TAG: "removeCitizenTag",
 	},
 	VEHICLE: {
 		GET_VEHICLES: "getVehicles",

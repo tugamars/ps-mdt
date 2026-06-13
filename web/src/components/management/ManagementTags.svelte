@@ -40,11 +40,13 @@
 	let TAG_TYPES = $derived(isEMS ? [
 		{ value: "officer", label: "Personnel" },
 		{ value: "report", label: "Report" },
-		{ value: "both", label: "Both" },
+		{ value: "citizen", label: "Citizen" },
+		{ value: "all", label: "all" },
 	] : [
 		{ value: "officer", label: "Officer" },
 		{ value: "report", label: "Report" },
-		{ value: "both", label: "Both" },
+		{ value: "citizen", label: "Citizen" },
+		{ value: "all", label: "All" },
 	]);
 
 	const JOB_TYPES = [
@@ -55,7 +57,7 @@
 
 	let tags: Tag[] = $state([]);
 	let newTagName: string = $state("");
-	let newTagType: "officer" | "report" | "both" = $state("officer");
+	let newTagType: "officer" | "report" | "all" | "citizen" = $state("officer");
 	let newTagColor: string = $state("#3b82f6");
 	let newTagJobType: JobTypeFilter = $state(jobType as JobTypeFilter);
 	let isLoading = $state(false);
@@ -66,7 +68,7 @@
 	let editType: "officer" | "report" | "both" = $state("officer");
 	let editColor: string = $state("#3b82f6");
 	let editJobType: JobTypeFilter = $state("all");
-	let filterType: "all" | "officer" | "report" | "both" = $state("all");
+	let filterType: "all" | "officer" | "report" | "citizen" = $state("all");
 	let filterJobType: "all" | "leo" | "ems" = $state("all");
 	let searchQuery: string = $state("");
 
@@ -296,7 +298,7 @@
 			<button class="filter-pill" class:active={filterType === "all"} onclick={() => (filterType = "all")}>All</button>
 			<button class="filter-pill" class:active={filterType === "officer"} onclick={() => (filterType = "officer")}>{isEMS ? 'Personnel' : 'Officer'}</button>
 			<button class="filter-pill" class:active={filterType === "report"} onclick={() => (filterType = "report")}>Report</button>
-			<button class="filter-pill" class:active={filterType === "both"} onclick={() => (filterType = "both")}>Both</button>
+			<button class="filter-pill" class:active={filterType === "citizen"} onclick={() => (filterType = "citizen")}>Citizen</button>
 		</div>
 		{#if !isEMS}
 			<div class="filter-pills">
@@ -677,6 +679,11 @@
 	.tag-type-badge.officer {
 		background: rgba(var(--accent-rgb), 0.08);
 		color: rgba(var(--accent-text-rgb), 0.7);
+	}
+
+	.tag-type-badge.citizen {
+		background: rgba(255, 178, 0, 0.08);
+		color: rgba(133, 92, 0, 0.7);
 	}
 
 	.tag-type-badge.report {

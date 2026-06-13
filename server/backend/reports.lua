@@ -988,21 +988,27 @@ ps.registerCallback(resourceName..':server:deleteReport', function(source, repor
     end
 end)
 
-ps.registerCallback(resourceName..':server:getAvailableTags', function(source, playerJobType)
+ps.registerCallback(resourceName..':server:getAvailableTags', function(source, playerJobType, tagType)
     local src = source
     if not CheckAuth(src) then return end
 
     local jt = playerJobType or 'leo'
+
+    local typeFilter = { "report", "both" };
+    if tagType ~= nil then
+        typeFilter = tagType;
+    end
+
 
     -- Pull from master mdt_tags table (report + both types) filtered by job_type
     local tags = MySQL.query.await([[
         SELECT t.name, t.color,
                (SELECT COUNT(*) FROM mdt_reports_tags rt WHERE rt.tag = t.name) AS usage_count
         FROM mdt_tags t
-        WHERE t.type IN ('report', 'both')
+        WHERE t.type IN (?)
           AND (t.job_type = ? OR t.job_type = 'all')
         ORDER BY t.name ASC
-    ]], { jt })
+    ]], { typeFilter, jt })
 
     return tags or {}
 end)

@@ -1335,3 +1335,8 @@ CREATE TABLE `mdt_citizen_notes` (
   PRIMARY KEY (`id`),
   KEY `citizen_id` (`citizen_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+ALTER TABLE mdt_tags
+MODIFY COLUMN `type`
+ENUM("officer","report","all","citizen")
+NOT NULL DEFAULT "officer";

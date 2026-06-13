@@ -284,3 +284,19 @@ RegisterNUICallback('addCitizenNote', function(data, cb)
     local result = ps.callback(resourceName .. ':server:addCitizenNote', data)
     cb(result or { success = false, message = 'Failed to add note' })
 end)
+
+RegisterNUICallback('getCitizenAvailableTags', function(data, cb)
+    if not MDTOpen then
+        cb({ success = false, message = 'MDT is not open' })
+        return
+    end
+
+    local jobType = ps.getJobType()
+    local mdtJobType = jobType == Config.MedicalJobType and 'ems' or 'leo'
+    local tags = ps.callback(resourceName .. ':server:getAvailableTags', mdtJobType, {"citizen" , "all" } )
+    if tags then
+        cb({ success = true, data = tags })
+    else
+        cb({ success = false, message = 'Failed to fetch available tags' })
+    end
+end)

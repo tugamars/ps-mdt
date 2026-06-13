@@ -65,6 +65,64 @@ local function collectCitizenFlags(citizenids)
     return flagsByCid
 end
 
+
+local function collectCitizenTags(citizenids)
+    local flagsByCid = {}
+    if not citizenids or #citizenids == 0 then
+        return flagsByCid
+    end
+
+    for i = 1, #citizenids do
+        flagsByCid[citizenids[i]] = {}
+    end
+
+    local inClause = buildInClause(citizenids)
+
+    local profileIdsIndexed={};
+
+    local ok, rowsProfiles = pcall(MySQL.query.await, ([[
+        SELECT id, citizenid
+        FROM mdt_profiles
+        WHERE citizenid IN (%s)
+    ]]):format(inClause), citizenids);
+
+    if(not ok) then return {}; end
+
+    local profileIds={};
+
+    for k,v in pairs(rowsProfiles or {}) do
+        if v.id and v.citizenid then
+            table.insert(profileIds , v.id);
+            profileIdsIndexed[v.id] = v.citizenid;
+        end
+    end
+
+    inClause = buildInClause(profileIds)
+
+    local okr, rows=pcall(MySQL.query.await, ([[
+        SELECT profileId, tag
+        FROM mdt_profiles_tags
+        WHERE profileId IN (%s)
+    ]]):format(inClause), profileIds);
+
+    print("Collecting citizen tags for profiles: " .. json.encode(profileIds));
+    print(json.encode(rows));
+
+
+    if rows then
+        for _, row in ipairs(rows or {}) do
+            if row.profileId then
+                local id=profileIdsIndexed[row.profileId];
+                print("Profile id: " .. tostring(row.profileId) .. " - " .. id .. " - tag: " .. row.tag);
+                flagsByCid[id] = flagsByCid[id] or {}
+                table.insert(flagsByCid[id], row.tag)
+            end
+        end
+    end
+
+    return flagsByCid
+end
+
 local function getGender(gen)
     if gen == 0 or gen == "male" then
         return 'Male'
@@ -158,6 +216,16 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         flagsByCid = {}
     end
 
+    -- Wrap flags in pcall since it queries mdt_reports_warrants / mdt_bolos which may not exist
+    local okt, tagsByCid = pcall(collectCitizenTags, citizenids)
+    if not okt then
+        ps.warn('[getCitizens] collectCitizenTags failed: ' .. tostring(tagsByCid))
+        tagsByCid = {}
+    end
+
+    print("TAGS")
+    print(json.encode(tagsByCid))
+
     -- Batch fetch profile pictures, property counts, vehicle counts, and arrest counts
     local profilePics = {}
     local propCounts = {}
@@ -222,7 +290,8 @@ ps.registerCallback(resourceName .. ':server:getCitizens', function(source, page
         v.properties = propCounts[v.citizenid] or 0
         v.vehicles = vehCounts[v.citizenid] or 0
         v.arrests = arrestCounts[v.citizenid] or 0
-        v.flags = flagsByCid[v.citizenid] or {}
+        v.flags = flagsByCid[tostring(v.citizenid)] or {}
+        v.tags = tagsByCid[tostring(v.citizenid)] or {}
     end
     local endTime = os.clock()
     local elapsedTime = (endTime - startTime) * 1000
@@ -380,7 +449,8 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
         v.properties = propCounts[v.citizenid] or 0
         v.vehicles = vehCounts[v.citizenid] or 0
         v.arrests = arrestCounts[v.citizenid] or 0
-        v.flags = flagsByCid[v.citizenid] or {}
+        v.flags = flagsByCid[tostring(v.citizenid)] or {}
+        v.tags = tagsByCid[tostring(v.citizenid)] or {}
     end
 
     local endTime = os.clock()
