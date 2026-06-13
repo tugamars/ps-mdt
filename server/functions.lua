@@ -345,3 +345,7 @@ ps.registerCallback('ps-mdt:hasProfile', function(source)
 
     return EnsureProfileExists(citizenId)
 end)
+
+function trim(s)
+    return s:match("^%s*(.-)%s*$")
+end

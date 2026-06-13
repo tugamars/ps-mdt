@@ -274,3 +274,13 @@ RegisterNUICallback('setWaypoint', function(data, cb)
     if not data or not data.x or not data.y then return end
     SetNewWaypoint(data.x, data.y)
 end)
+
+RegisterNUICallback('addCitizenNote', function(data, cb)
+    if not MDTOpen then cb({ success = false, message = 'MDT is not open' }) return end
+    if not data or not data.citizenid or not data.note then
+        cb({ success = false, message = 'Missing citizen id' })
+        return
+    end
+    local result = ps.callback(resourceName .. ':server:addCitizenNote', data)
+    cb(result or { success = false, message = 'Failed to add note' })
+end)

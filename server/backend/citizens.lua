@@ -647,6 +647,13 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
         )
     end
 
+    local notes = safeQuery(
+            ('SELECT note, author_name, created_at FROM mdt_citizen_notes WHERE citizen_id = ? ORDER BY created_at DESC'),
+            {citizenid}
+    )
+
+
+
     return {
         success = true,
         profile = {
@@ -713,6 +720,7 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
 
                 return result
             end)(),
+            notes = notes,
         }
     }
 end)
@@ -1294,8 +1302,6 @@ ps.registerCallback(resourceName .. ':server:getProperty', function(source, prop
         return { success = false, message = 'Property not found' }
     end
 
-    print(json.encode(propRow));
-
     -- Decode coords JSON → table
     local coords = nil
     if propRow.coords and propRow.coords ~= '' then
@@ -1394,4 +1400,34 @@ ps.registerCallback(resourceName .. ':server:getProperty', function(source, prop
             keyholders    = keyholders,
         }
     }
+end)
+
+
+ps.registerCallback(resourceName .. ':server:addCitizenNote', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+
+    payload = payload or {}
+    local citizenId = payload.citizenid
+    local note = trim(payload.note)
+    if not citizenId or not note or note == "" then
+        return { success = false, message = 'Missing citizen id or Note' }
+    end
+
+    local authorName = ps.getName(src)
+    local authorCitizenId = ps.getIdentifier(src)
+
+    local id = MySQL.insert.await([[
+        INSERT INTO mdt_citizen_notes (citizen_id, note, author_citizenid, author_name)
+        VALUES (?, ?, ?, ?)
+    ]], { citizenId, note, authorCitizenId, authorName })
+
+    if(not id) then
+        return { success = false, message = 'Failed to add note' }
+    end
+
+    return { success = true, newNotes = safeQuery(
+            ('SELECT note, author_name, created_at FROM mdt_citizen_notes WHERE citizen_id = ? ORDER BY created_at DESC'),
+            {citizenId}
+    ) }
 end)

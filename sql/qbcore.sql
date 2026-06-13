@@ -1324,3 +1324,14 @@ CREATE TABLE IF NOT EXISTS `mdt_warrant_reviews` (
 
 -- Add lawyer_requested column to mdt_reports
 ALTER TABLE `mdt_reports` ADD COLUMN IF NOT EXISTS `lawyer_requested` tinyint(1) NOT NULL DEFAULT 0;
+
+CREATE TABLE `mdt_citizen_notes` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `citizen_id` varchar(50) NOT NULL,
+  `note` varchar(255) NOT NULL,
+  `author_citizenid` varchar(50) DEFAULT NULL,
+  `author_name` varchar(100) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `citizen_id` (`citizen_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

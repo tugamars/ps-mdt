@@ -115,13 +115,14 @@
 	let citizenTotalPages = $state(1); // how many pages exist
 	let citizenTotalRecords = $state(0);
 
-
 	let filteredCitizens = $derived.by(() => {
 		return citizens;
 	});
 
 	// Flag to prevent the search effect from running on initial component creation
 	let initialSearchEffectRun = true;
+
+	let newNote=$state("Enter note here...");
 
 	// This function will now accept page and search parameters
 	async function fetchCitizens(page: number, search: string) {
@@ -278,10 +279,27 @@
 		}
 	}
 
+	function formatDate(timestamp: number): string {
+		return new Date(timestamp).toLocaleDateString("en-US", {
+			month: "2-digit",
+			day: "2-digit",
+			year: "numeric",
+		});
+	}
+
+	function formatTime(timestamp: number): string {
+		return new Date(timestamp).toLocaleTimeString("en-US", {
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
+		});
+	}
+
+
 	async function viewProfile(citizenId: string) {
 		if (isEnvBrowser()) {
 			const mockProfiles: Record<string, CitizenProfile> = {
-				'ABC12345': { citizenid: 'ABC12345', firstName: 'Marcus', lastName: 'Rodriguez', gender: 'Male', dob: '1990-05-15', phone: '555-0142', fingerprint: 'FP-8291-AXKF', image: '', occupations: ['Mechanic', 'Taxi Driver'], properties: 2, vehicles: 3, arrests: 1, flags: ['Active Warrant', 'Violent'], notes: 'Known associate of local gangs. Exercise caution during traffic stops.', licenses: { driver: true, weapon: false }, customLicenses: [{ id: 1, name: 'Hunting License', active: true }, { id: 2, name: 'Boating License', active: false }, { id: 3, name: 'Pilot License', active: false }], ownedVehicles: [{ plate: '03ROY490', vehicle: 'Exemplar' }, { plate: 'FAST001', vehicle: 'Sultan' }, { plate: 'LOW99X', vehicle: 'Bati 801' }], propertiesList: [{ house: '4 Integrity Way, Apt 30' }, { house: '1561 San Vitas Street' }], weapons: [{ id: 1, serial: 'WPN-4821', scratched: 0, weaponModel: 'weapon_pistol' }, { id: 2, serial: 'WPN-9012', scratched: 1, weaponModel: 'weapon_smg' }], evidence: [{ id: 1, title: 'Shell Casings', type: 'Physical', report_id: 42, notes: 'Found at scene near Vespucci' }, { id: 2, title: 'CCTV Footage', type: 'Digital', case_id: 7 }], linkedReports: [{ id: 42, title: 'Armed Robbery - Fleeca Bank', type: 'Incident' }, { id: 55, title: 'Traffic Violation - Speeding', type: 'Citation' }], activeBolos: [{ id: 1, type: 'Person', reportId: '42', notes: 'Armed and dangerous, last seen near Legion Square' }] },
+				'ABC12345': { citizenid: 'ABC12345', firstName: 'Marcus', lastName: 'Rodriguez', gender: 'Male', dob: '1990-05-15', phone: '555-0142', fingerprint: 'FP-8291-AXKF', image: '', occupations: ['Mechanic', 'Taxi Driver'], properties: 2, vehicles: 3, arrests: 1, flags: ['Active Warrant', 'Violent'], notes: 'Known associate of local gangs. Exercise caution during traffic stops.', licenses: { driver: true, weapon: false }, customLicenses: [{ id: 1, name: 'Hunting License', active: true }, { id: 2, name: 'Boating License', active: false }, { id: 3, name: 'Pilot License', active: false }], ownedVehicles: [{ plate: '03ROY490', vehicle: 'Exemplar' }, { plate: 'FAST001', vehicle: 'Sultan' }, { plate: 'LOW99X', vehicle: 'Bati 801' }], propertiesList: [{ house: '4 Integrity Way, Apt 30' }, { house: '1561 San Vitas Street' }], weapons: [{ id: 1, serial: 'WPN-4821', scratched: 0, weaponModel: 'weapon_pistol' }, { id: 2, serial: 'WPN-9012', scratched: 1, weaponModel: 'weapon_smg' }], evidence: [{ id: 1, title: 'Shell Casings', type: 'Physical', report_id: 42, notes: 'Found at scene near Vespucci' }, { id: 2, title: 'CCTV Footage', type: 'Digital', case_id: 7 }], linkedReports: [{ id: 42, title: 'Armed Robbery - Fleeca Bank', type: 'Arrest' }, { id: 55, title: 'Traffic Violation - Speeding', type: 'Citation' }, { id: 56, title: 'Public Intoxication', type: 'Arrest Report' }, { id: 57, title: 'Jaywalking', type: 'Incident' }], activeBolos: [{ id: 1, type: 'Person', reportId: '42', notes: 'Armed and dangerous, last seen near Legion Square' }] },
 				'DEF67890': { citizenid: 'DEF67890', firstName: 'Sarah', lastName: 'Chen', gender: 'Female', dob: '1995-11-22', phone: '555-0299', fingerprint: 'FP-1122-BXYZ', image: '', occupations: ['Doctor'], properties: 1, vehicles: 1, arrests: 0, flags: [], licenses: { driver: true, weapon: true }, customLicenses: [{ id: 1, name: 'Hunting License', active: false }, { id: 2, name: 'Boating License', active: true }, { id: 3, name: 'Pilot License', active: true }], ownedVehicles: [{ plate: 'MED001', vehicle: 'Schafter' }], propertiesList: [{ house: 'Eclipse Towers, Apt 5' }], weapons: [], evidence: [], linkedReports: [], activeBolos: [] },
 				'GHI11223': { citizenid: 'GHI11223', firstName: 'James', lastName: 'Wilson', gender: 'Male', dob: '1988-03-08', phone: '555-0377', fingerprint: 'FP-3344-CDEF', image: '', occupations: [], properties: 0, vehicles: 2, arrests: 5, flags: ['Flight Risk'], licenses: { driver: false, weapon: false }, customLicenses: [{ id: 1, name: 'Hunting License', active: false }, { id: 2, name: 'Boating License', active: false }, { id: 3, name: 'Pilot License', active: false }], ownedVehicles: [{ plate: 'RUN4IT', vehicle: 'Comet' }, { plate: 'GHOST7', vehicle: 'Elegy' }], propertiesList: [], weapons: [{ id: 3, serial: 'WPN-5577', scratched: 0, weaponModel: 'weapon_assaultrifle' }], evidence: [], linkedReports: [{ id: 12, title: 'Evading Police', type: 'Incident' }], activeBolos: [] },
 			};
@@ -328,19 +346,34 @@
 	let propertiesPage = $state(1);
 	let weaponsPage = $state(1);
 	let evidencePage = $state(1);
+	let notesPage = $state(1);
 	let reportsPage = $state(1);
+	let arrestReportsPage = $state(1);
 	let licensesPage = $state(1);
 
-	// Reset pages when profile changes
+	// Reset pages when profile changes or activeReportPanel changes
 	$effect(() => {
 		if (selectedProfile) {
 			vehiclesPage = 1;
 			propertiesPage = 1;
 			weaponsPage = 1;
 			evidencePage = 1;
+			notesPage = 1;
+			arrestReportsPage = 1;
 			reportsPage = 1;
 			licensesPage = 1;
 		}
+	});
+
+	// Derived reports based on type
+	let arrestReports = $derived.by(() => {
+		if (!selectedProfile?.linkedReports) return [];
+		return selectedProfile.linkedReports.filter(r => r.type.toLowerCase().includes('arrest'));
+	});
+
+	let otherReports = $derived.by(() => {
+		if (!selectedProfile?.linkedReports) return [];
+		return selectedProfile.linkedReports.filter(r => !r.type.toLowerCase().includes('arrest'));
 	});
 
 	function sectionSlice<T>(items: T[] | undefined, page: number): T[] {
@@ -559,6 +592,7 @@
 
 	// ── Issue License modal ──
 	let showIssueLicenseModal = $state(false);
+	let showNoteAddModal = $state(false);
 
 	interface IssuableLicense {
 		key: string;
@@ -585,6 +619,35 @@
 			await toggleLicense(license.key as "driver" | "weapon", newState);
 		} else if (license.customId) {
 			await toggleCustomLicense(license.customId, newState);
+		}
+	}
+
+	async function addNote(){
+		if (!selectedProfile) return;
+		if (isEnvBrowser()) {
+			selectedProfile = {
+				...selectedProfile,
+				notes: (selectedProfile.notes || ""),
+			};
+			showNoteAddModal = false;
+			newNote = null;
+			return;
+		}
+		try {
+			const response = await fetchNui<any>(
+					NUI_EVENTS.CITIZEN.ADD_CITIZEN_NOTE,
+					{ citizenid: selectedProfile.citizenid, note: newNote }
+			);
+			if (response.success) {
+				selectedProfile = {
+					...selectedProfile,
+					notes: response.newNotes
+				};
+				showNoteAddModal = false;
+				newNote = null;
+			}
+		} catch {
+			// silent fail
 		}
 	}
 
@@ -745,7 +808,7 @@
 				<div class="pstat"><span class="pstat-val">{selectedProfile.properties}</span><span class="pstat-lbl">Properties</span></div>
 				<div class="pstat"><span class="pstat-val">{selectedProfile.vehicles}</span><span class="pstat-lbl">Vehicles</span></div>
 				<div class="pstat"><span class="pstat-val accent-red">{selectedProfile.arrests}</span><span class="pstat-lbl">Arrests</span></div>
-				<div class="pstat"><span class="pstat-val">{selectedProfile.occupations.length}</span><span class="pstat-lbl">Jobs</span></div>
+				<!--<div class="pstat"><span class="pstat-val">{selectedProfile.occupations.length}</span><span class="pstat-lbl">Jobs</span></div>-->
 			</div>
 
 			<!-- Body -->
@@ -766,7 +829,7 @@
 						</div>
 						{#if !isEMS}
 							<div class="profile-photo-actions">
-								<button class="photo-action-btn" onclick={openCitizenPhotoUpload} title="Upload photo" disabled={uploading}>
+								<!--<button class="photo-action-btn" onclick={openCitizenPhotoUpload} title="Upload photo" disabled={uploading}>
 									{#if uploading}
 										<div class="upload-spinner"></div>
 										Uploading...
@@ -778,7 +841,7 @@
 								<button class="photo-action-btn" onclick={triggerCitizenMugshot} title="Take mugshot">
 									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
 									Take Mugshot
-								</button>
+								</button>-->
 							</div>
 						{/if}
 					</div>
@@ -791,7 +854,7 @@
 							<span class="dlabel">Phone</span>
 							<span class="dvalue clickable" onclick={() => copyToClipboard(selectedProfile?.phone || '', 'Phone')}>{selectedProfile.phone}</span>
 						</div>
-						<div class="detail-row">
+						<!--<div class="detail-row">
 							<span class="dlabel">Fingerprint</span>
 							{#if editingFingerprint}
 								<input
@@ -802,9 +865,8 @@
 										onblur={saveFingerprint}
 								/>
 							{:else}
-								<span class="dvalue clickable" onclick={() => startEditFingerprint()}>
+								<span class="dvalue">
 									{selectedProfile.fingerprint || 'N/A'}
-									<span class="material-icons edit-icon">edit</span>
 								</span>
 							{/if}
 						</div>
@@ -819,26 +881,18 @@
 										onblur={saveDNA}
 								/>
 							{:else}
-								<span class="dvalue clickable" onclick={() => startEditDNA()}>
+								<span class="dvalue">
 									{selectedProfile.dna || 'N/A'}
-									<span class="material-icons edit-icon">edit</span>
 								</span>
 							{/if}
-						</div>
-						<div class="detail-row"><span class="dlabel">Occupations</span><span class="dvalue">{formatOccupations(selectedProfile.occupations)}</span></div>
+						</div>-->
+						<!--<div class="detail-row"><span class="dlabel">Occupations</span><span class="dvalue">{formatOccupations(selectedProfile.occupations)}</span></div>-->
 					</div>
 
 				</div>
 
 				<!-- Main content -->
 				<div class="profile-main">
-					{#if selectedProfile.notes}
-						<div class="panel">
-							<div class="panel-title">Notes</div>
-							<div class="notes-text">{selectedProfile.notes}</div>
-						</div>
-					{/if}
-
 					<div class="sections-grid">
 						<!-- Active Warrants -->
 						<div class="panel" class:panel-danger={hasActiveWarrants}>
@@ -955,6 +1009,61 @@
 						</div>
 
 						<div class="panel">
+							<div class="panel-title">Arrest Reports <span class="cnt">{arrestReports?.length || 0}</span></div>
+							<div class="section-list">
+								{#if arrestReports && arrestReports.length > 0}
+									{#each sectionSlice(arrestReports, reportsPage) as r}
+										<div class="sitem">
+											<div class="sitem-info">
+												<span class="sitem-primary">{r.title}</span>
+												<span class="sitem-secondary">{r.type}</span>
+											</div>
+											{#if !isEMS}<button class="view-btn" onclick={() => goToWarrantReport(r.id)}>View</button>{/if}
+										</div>
+									{/each}
+								{:else}<div class="empty-msg">No reports</div>{/if}
+							</div>
+							{#if sectionTotalPages(arrestReports) > 1}
+								<div class="section-pager">
+									<button class="spager-btn" disabled={reportsPage <= 1} onclick={() => arrestReportsPage--}>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+									</button>
+									<span class="spager-info">{arrestReportsPage} / {sectionTotalPages(arrestReports)}</span>
+									<button class="spager-btn" disabled={arrestReportsPage >= sectionTotalPages(arrestReports)} onclick={() => arrestReportsPage++}>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+									</button>
+								</div>
+							{/if}
+						</div>
+						<div class="panel">
+							<div class="panel-title">Other Reports <span class="cnt">{otherReports?.length || 0}</span></div>
+							<div class="section-list">
+								{#if otherReports && otherReports.length > 0}
+									{#each sectionSlice(otherReports, reportsPage) as r}
+										<div class="sitem">
+											<div class="sitem-info">
+												<span class="sitem-primary">{r.title}</span>
+												<span class="sitem-secondary">{r.type}</span>
+											</div>
+											{#if !isEMS}<button class="view-btn" onclick={() => goToWarrantReport(r.id)}>View</button>{/if}
+										</div>
+									{/each}
+								{:else}<div class="empty-msg">No reports</div>{/if}
+							</div>
+							{#if sectionTotalPages(otherReports) > 1}
+								<div class="section-pager">
+									<button class="spager-btn" disabled={reportsPage <= 1} onclick={() => reportsPage--}>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+									</button>
+									<span class="spager-info">{reportsPage} / {sectionTotalPages(otherReports)}</span>
+									<button class="spager-btn" disabled={reportsPage >= sectionTotalPages(otherReports)} onclick={() => reportsPage++}>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+									</button>
+								</div>
+							{/if}
+						</div>
+
+						<div class="panel">
 							<div class="panel-title">Properties <span class="cnt">{selectedProfile.propertiesList?.length || 0}</span></div>
 							<div class="section-list">
 								{#if selectedProfile.propertiesList && selectedProfile.propertiesList.length > 0}
@@ -1035,33 +1144,39 @@
 								</div>
 							{/if}
 						</div>
+
 						<div class="panel">
-							<div class="panel-title">Linked Reports <span class="cnt">{selectedProfile.linkedReports?.length || 0}</span></div>
+							<div class="panel-title">Notes <span class="cnt">{selectedProfile.notes?.length || 0}</span>
+								<button class="issue-license-btn" onclick={() => (showNoteAddModal = true)}>
+									<span class="material-icons" style="font-size: 12px;">add</span> Note
+								</button>
+							</div>
+
 							<div class="section-list">
-								{#if selectedProfile.linkedReports && selectedProfile.linkedReports.length > 0}
-									{#each sectionSlice(selectedProfile.linkedReports, reportsPage) as r}
+								{#if selectedProfile.notes && selectedProfile.notes.length > 0}
+									{#each sectionSlice(selectedProfile.notes, notesPage) as e}
 										<div class="sitem">
 											<div class="sitem-info">
-												<span class="sitem-primary">{r.title}</span>
-												<span class="sitem-secondary">{r.type}</span>
+												<span class="sitem-primary">{e.note}</span>
+												<span class="sitem-secondary">{formatDate(e.created_at)} {formatTime(e.created_at)} - {e.author_name}</span>
 											</div>
-											{#if !isEMS}<button class="view-btn" onclick={() => goToWarrantReport(r.id)}>View</button>{/if}
 										</div>
 									{/each}
-								{:else}<div class="empty-msg">No reports</div>{/if}
+								{:else}<div class="empty-msg">No notes</div>{/if}
 							</div>
-							{#if sectionTotalPages(selectedProfile.linkedReports) > 1}
+							{#if sectionTotalPages(selectedProfile.notes) > 1}
 								<div class="section-pager">
-									<button class="spager-btn" disabled={reportsPage <= 1} onclick={() => reportsPage--}>
+									<button class="spager-btn" disabled={notesPage <= 1} onclick={() => notesPage--}>
 										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
 									</button>
-									<span class="spager-info">{reportsPage} / {sectionTotalPages(selectedProfile.linkedReports)}</span>
-									<button class="spager-btn" disabled={reportsPage >= sectionTotalPages(selectedProfile.linkedReports)} onclick={() => reportsPage++}>
+									<span class="spager-info">{notesPage} / {sectionTotalPages(selectedProfile.notes)}</span>
+									<button class="spager-btn" disabled={notesPage >= sectionTotalPages(selectedProfile.notes)} onclick={() => notesPage++}>
 										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
 									</button>
 								</div>
 							{/if}
 						</div>
+
 					</div>
 				</div>
 			</div>
@@ -1224,6 +1339,25 @@
 							{/if}
 						</div>
 					{/if}
+				</div>
+			</div>
+		{/if}
+
+		{#if showNoteAddModal}
+			<div class="modal-overlay" onclick={() => (showNoteAddModal = false)}>
+				<div class="modal-card" onclick={(e) => e.stopPropagation()}>
+					<div class="modal-header">
+						<h3>Add note</h3>
+						<button class="modal-close" onclick={() => (showNoteAddModal = false)}>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+						</button>
+					</div>
+					<div class="modal-body license-modal-body">
+						<textarea bind:value={newNote} class="notes-input" placeholder="Enter note details..." rows="5"></textarea>
+						<button class="issue-license-btn" style="margin-top: 10px; align-self: flex-end;" onclick={addNote} disabled={newNote === null || newNote.trim() === ""}>
+							<span class="material-icons" style="font-size: 12px;">add</span> Add Note
+						</button>
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -1537,4 +1671,13 @@
 	.prop-owner-row { border-bottom: none; }
 	.prop-coords-row { display: flex; align-items: center; gap: 6px; padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.04); color: rgba(255,255,255,0.2); font-size: 10px; font-family: monospace; }
 	.prop-coords-row svg { color: rgba(255,255,255,0.15); flex-shrink: 0; }
+
+	.panel-tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.06); margin-top: 10px; }
+	.panel-tab-btn { flex: 1; padding: 8px 10px; background: transparent; border: none; color: rgba(255,255,255,0.3); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; transition: all 0.12s; border-bottom: 2px solid transparent; display: flex; align-items: center; justify-content: center; gap: 6px; }
+	.panel-tab-btn:hover { color: rgba(255,255,255,0.6); }
+	.panel-tab-btn.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+	.panel-tab-btn .cnt { background: rgba(96,165,250,0.1); color: #93c5fd; }
+
+	.notes-input { width: 100%; font-size: 8pt; padding: 5px; }
+
 </style>
