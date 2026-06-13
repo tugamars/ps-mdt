@@ -1109,7 +1109,12 @@ ps.registerCallback(resourceName .. ':server:addCitizenTag', function(source, pa
 
     local profile = MySQL.single.await('SELECT id FROM mdt_profiles WHERE citizenid = ?', { citizenId })
     if not profile then
-        return { success = false, message = 'Profile not found' }
+        --return { success = false, message = 'Profile not found' }
+        EnsureProfileExists(citizenId)
+        profile = MySQL.single.await('SELECT id FROM mdt_profiles WHERE citizenid = ?', { citizenId })
+        if not profile then
+            return { success = false, message = 'Profile not found after creation attempt' }
+        end
     end
 
     -- Check for duplicate
