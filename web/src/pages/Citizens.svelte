@@ -637,6 +637,78 @@
 		}
 	}
 
+	// ── Property detail modal ──
+	interface PropertyDetail {
+		property_name: string;
+		coords?: { x: number; y: number; z: number } | null;
+		streetName?: string;
+		owner?: string;
+		ownerName?: string;
+		keyholders?: Array<{ citizenid: string; name?: string }>;
+	}
+	let propertyDetail: PropertyDetail | null = $state(null);
+	let propertyDetailLoading = $state(false);
+	let waypointSet = $state(false);
+	let waypointTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	async function openPropertyFromProfile(propertyId: number) {
+		if (!propertyId) return;
+		propertyDetailLoading = true;
+		propertyDetail = null;
+		waypointSet = false;
+
+		if (isEnvBrowser()) {
+			await new Promise((r) => setTimeout(r, 400));
+			propertyDetail = {
+				property_name: propertyId,
+				coords: { x: -59.4, y: -616.29, z: 37.36 },
+				owner: 'ABC12345',
+				ownerName: 'Marcus Rodriguez',
+				keyholders: [
+					{ citizenid: 'DEF67890', name: 'Sarah Chen' },
+					{ citizenid: 'GHI11223', name: 'James Wilson' },
+				],
+			};
+			propertyDetailLoading = false;
+			return;
+		}
+
+		try {
+			const response = await fetchNui<any>(NUI_EVENTS.CITIZEN.GET_PROPERTY, { property_id: propertyId });
+			if (response?.property) {
+				propertyDetail = response.property;
+			} else {
+				propertyDetail = { property_name: " " + propertyId };
+			}
+		} catch {
+			propertyDetail = { property_name: " " + propertyId };
+		}
+		propertyDetailLoading = false;
+	}
+
+	function closePropertyDetail() {
+		propertyDetail = null;
+		waypointSet = false;
+		if (waypointTimeout) clearTimeout(waypointTimeout);
+	}
+
+	async function setPropertyWaypoint() {
+		if (!propertyDetail?.coords) return;
+		try {
+			await fetchNui(NUI_EVENTS.CITIZEN.SET_WAYPOINT, { x: propertyDetail.coords.x, y: propertyDetail.coords.y });
+			waypointSet = true;
+			if (waypointTimeout) clearTimeout(waypointTimeout);
+			waypointTimeout = setTimeout(() => { waypointSet = false; }, 2500);
+		} catch {
+			// silent — waypoint set is best-effort
+		}
+	}
+
+	function formatCoords(coords: { x: number; y: number; z: number } | null | undefined): string {
+		if (!coords) return 'Unknown';
+		return `${coords.x.toFixed(1)}, ${coords.y.toFixed(1)}, ${coords.z.toFixed(1)}`;
+	}
+
 </script>
 
 <div class="page">
@@ -887,7 +959,14 @@
 							<div class="section-list">
 								{#if selectedProfile.propertiesList && selectedProfile.propertiesList.length > 0}
 									{#each sectionSlice(selectedProfile.propertiesList, propertiesPage) as p}
-										<div class="sitem"><div class="sitem-info"><span class="sitem-primary">{p.house}</span></div></div>
+
+										<div class="sitem">
+											<div class="sitem-info"><span class="sitem-primary">{p.house}</span></div>
+											<button class="sitem-arrow" title="View Property" onclick={() => openPropertyFromProfile(p.id)}>
+												<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+											</button>
+										</div>
+
 									{/each}
 								{:else}<div class="empty-msg">No properties</div>{/if}
 							</div>
@@ -1041,6 +1120,114 @@
 				</div>
 			</div>
 		{/if}
+
+		<!-- ── Property Detail Modal ── -->
+		{#if propertyDetail || propertyDetailLoading}
+			<div class="modal-overlay" onclick={closePropertyDetail}>
+				<div class="modal-card modal-card-property" onclick={(e) => e.stopPropagation()}>
+					{#if propertyDetailLoading}
+						<div class="center-msg"><div class="spinner"></div><span>Loading property...</span></div>
+					{:else if propertyDetail}
+						<div class="modal-header">
+							<div class="prop-modal-title-group">
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: rgba(96,165,250,0.6); flex-shrink:0; margin-top:1px"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+								<h3>{propertyDetail.property_name}</h3>
+							</div>
+							<button class="modal-close" onclick={closePropertyDetail}>
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+							</button>
+						</div>
+
+						<!-- Location banner -->
+						{#if propertyDetail.coords && propertyDetail.streetName}
+							<button
+									class="prop-location-banner"
+									class:waypoint-active={waypointSet}
+									onclick={setPropertyWaypoint}
+									title="Set GPS waypoint"
+							>
+								<div class="prop-location-left">
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+									<div class="prop-location-text">
+										<span class="prop-location-label">Location</span>
+										<span class="prop-location-coords">
+											{propertyDetail.streetName || propertyDetail.property_name}
+										</span>
+									</div>
+								</div>
+								<div class="prop-waypoint-btn" class:waypoint-done={waypointSet}>
+									{#if waypointSet}
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+										Waypoint Set
+									{:else}
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+										Set Waypoint
+									{/if}
+								</div>
+							</button>
+						{:else}
+							<button class="prop-location-banner" disabled title="Apartment">
+								<div class="prop-location-left">
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+									<div class="prop-location-text">
+										<span class="prop-location-label">Location</span>
+										<span class="prop-location-coords">
+											Building {propertyDetail.property_name}
+										</span>
+									</div>
+								</div>
+							</button>
+						{/if}
+
+						<div class="modal-body">
+							<!-- Owner row -->
+							<div class="prop-section-label">Owner</div>
+							{#if propertyDetail.ownerName || propertyDetail.owner}
+								<div class="prop-person-row prop-owner-row">
+									<div class="prop-person-avatar prop-owner-avatar">
+										<svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+									</div>
+									<div class="prop-person-info">
+										<span class="prop-person-name">{propertyDetail.ownerName || 'Unknown'}</span>
+										{#if propertyDetail.owner}
+											<span class="prop-person-cid">{propertyDetail.owner}</span>
+										{/if}
+									</div>
+									<span class="prop-role-badge prop-role-owner">Owner</span>
+								</div>
+							{:else}
+								<div class="prop-empty-row">No owner on record</div>
+							{/if}
+
+							<!-- Keyholders -->
+							<div class="prop-section-label prop-section-label-gap">
+								Keyholders
+								<span class="prop-kh-count">{propertyDetail.keyholders?.length || 0}</span>
+							</div>
+							{#if propertyDetail.keyholders && propertyDetail.keyholders.length > 0}
+								<div class="prop-keyholders-list">
+									{#each propertyDetail.keyholders as kh}
+										<button class="prop-person-row prop-person-clickable" onclick={() => { closePropertyDetail(); viewProfile(kh.citizenid); }}>
+											<div class="prop-person-avatar">
+												<svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+											</div>
+											<div class="prop-person-info">
+												<span class="prop-person-name">{kh.name || 'Unknown'}</span>
+												<span class="prop-person-cid">{kh.citizenid}</span>
+											</div>
+											<span class="prop-role-badge prop-role-key">Key Access</span>
+										</button>
+									{/each}
+								</div>
+							{:else}
+								<div class="prop-empty-row">No keyholders</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+		{/if}
+
 	{:else}
 		<!-- ===== LIST VIEW ===== -->
 		<div class="list-view">
@@ -1313,4 +1500,41 @@
 	.license-modal-info { display: flex; align-items: center; gap: 8px; }
 	.license-modal-name { font-size: 12px; color: rgba(255,255,255,0.75); font-weight: 500; }
 	.license-modal-type { font-size: 8px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.25); }
+
+	/* ── Property modal ── */
+	.prop-modal-title-group { display: flex; align-items: flex-start; gap: 7px; flex: 1; min-width: 0; }
+	.prop-modal-title-group h3 { white-space: normal; line-height: 1.3; }
+	/* Location banner — clickable strip */
+	.prop-location-banner { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(96,165,250,0.04); border-bottom: 1px solid rgba(96,165,250,0.08); cursor: pointer; width: 100%; border: none; text-align: left; transition: background 0.12s; }
+	.prop-location-banner:hover { background: rgba(96,165,250,0.08); }
+	.prop-location-banner.waypoint-active { background: rgba(52,211,153,0.05); border-bottom-color: rgba(52,211,153,0.1); }
+	.prop-location-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+	.prop-location-left svg { color: rgba(96,165,250,0.5); flex-shrink: 0; }
+	.prop-location-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+	.prop-location-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.25); }
+	.prop-location-coords { font-size: 11px; color: rgba(255,255,255,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.prop-person-clickable { cursor: pointer; background: transparent; border: none; width: 100%; text-align: left; font: inherit; color: inherit; }
+	.prop-person-clickable:hover { background: rgba(255,255,255,0.03); }
+	.prop-waypoint-btn { display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: rgba(96,165,250,0.6); flex-shrink: 0; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(96,165,250,0.12); background: rgba(96,165,250,0.05); transition: all 0.12s; }
+	.prop-location-banner:hover .prop-waypoint-btn { color: rgba(96,165,250,0.9); border-color: rgba(96,165,250,0.25); background: rgba(96,165,250,0.1); }
+	.prop-waypoint-btn.waypoint-done { color: #34d399; border-color: rgba(52,211,153,0.2); background: rgba(52,211,153,0.06); }
+	/* Property body sections */
+	.prop-section-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.25); padding: 12px 16px 6px; display: flex; align-items: center; gap: 6px; }
+	.prop-section-label-gap { padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.04); }
+	.prop-kh-count { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.3); font-size: 9px; padding: 0 5px; border-radius: 3px; line-height: 15px; }
+	.prop-person-row { display: flex; align-items: center; gap: 10px; padding: 8px 16px; transition: background 0.1s; }
+	.prop-person-row:hover { background: rgba(255,255,255,0.02); }
+	.prop-keyholders-list { display: flex; flex-direction: column; padding-bottom: 4px; }
+	.prop-person-avatar { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: rgba(255,255,255,0.25); }
+	.prop-owner-avatar { background: rgba(96,165,250,0.08); color: rgba(96,165,250,0.5); }
+	.prop-person-info { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+	.prop-person-name { font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.prop-person-cid { font-size: 10px; color: rgba(255,255,255,0.25); font-family: monospace; }
+	.prop-role-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.3px; padding: 2px 7px; border-radius: 3px; flex-shrink: 0; border: 1px solid transparent; }
+	.prop-role-owner { background: rgba(96,165,250,0.1); color: #93c5fd; border-color: rgba(96,165,250,0.15); }
+	.prop-role-key { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.35); border-color: rgba(255,255,255,0.06); }
+	.prop-empty-row { padding: 10px 16px; font-size: 11px; color: rgba(255,255,255,0.2); }
+	.prop-owner-row { border-bottom: none; }
+	.prop-coords-row { display: flex; align-items: center; gap: 6px; padding: 8px 16px 12px; border-top: 1px solid rgba(255,255,255,0.04); color: rgba(255,255,255,0.2); font-size: 10px; font-family: monospace; }
+	.prop-coords-row svg { color: rgba(255,255,255,0.15); flex-shrink: 0; }
 </style>

@@ -500,9 +500,9 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
         ), { citizenid }) or {}
     local vehiclesCount = #vehicles
     local properties = MySQL.query.await(
-        ('SELECT CONCAT(IFNULL(%s, %s), " - No ", %s) AS house FROM %s WHERE %s = ?'):format(
+        ('SELECT CONCAT(IFNULL(%s, %s), " - No ", %s) AS house, %s as id FROM %s WHERE %s = ?'):format(
             TableMap.Properties.rawFields.apartment, TableMap.Properties.rawFields.street,
-            TableMap.Properties.rawFields.property_id,
+            TableMap.Properties.rawFields.property_id, TableMap.Properties.rawFields.property_id,
             TableMap.Properties.table, TableMap.Properties.rawFields.owner
         ), { citizenid }) or {}
     local propertiesCount = #properties
@@ -1264,6 +1264,134 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
             weapons = weapons,
             licenses = { driver = licences.driver or false, weapon = licences.weapon or false },
             customLicenses = clList,
+        }
+    }
+end)
+
+ps.registerCallback(resourceName .. ':server:getProperty', function(source, propertyId)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+
+    if not propertyId then
+        return { success = false, message = 'Missing property id' }
+    end
+
+    local _Prop = TableMap.Properties
+    local propRow = MySQL.single.await(([[
+        SELECT %s AS id, CONCAT(IFNULL(%s, %s), " - No ", %s) AS property_name, %s AS coords, %s AS owner, %s AS keyholders, CONCAT(%s, ", ", %s) AS streetName
+        FROM %s
+        WHERE %s = ?
+        LIMIT 1
+    ]]):format(
+        _Prop.rawFields.property_id,  _Prop.rawFields.apartment, _Prop.rawFields.street,
+            _Prop.rawFields.property_id, _Prop.rawFields.coords,
+        _Prop.rawFields.owner, _Prop.rawFields.keyholders, _Prop.rawFields.street, _Prop.rawFields.region,
+        _Prop.table,
+        _Prop.rawFields.property_id
+    ), { propertyId })
+
+    if not propRow then
+        return { success = false, message = 'Property not found' }
+    end
+
+    print(json.encode(propRow));
+
+    -- Decode coords JSON → table
+    local coords = nil
+    if propRow.coords and propRow.coords ~= '' then
+        local ok, decoded = pcall(json.decode, propRow.coords)
+        if ok and decoded then
+            coords = decoded
+        end
+    end
+
+    -- Resolve owner citizenid → full name
+    local ownerName = nil
+    if propRow.owner and propRow.owner ~= '' then
+        local _P = TableMap.Players
+        local ownerRow = MySQL.single.await(([[
+            SELECT %s AS firstname, %s AS lastname
+            FROM %s
+            WHERE %s = ?
+            LIMIT 1
+        ]]):format(
+            _P.rawFields.firstname, _P.rawFields.lastname,
+            _P.table,
+            _P.rawFields.citizenid
+        ), { propRow.owner })
+        if ownerRow then
+            ownerName = (ownerRow.firstname or '') .. ' ' .. (ownerRow.lastname or '')
+            ownerName = ownerName:match('^%s*(.-)%s*$') -- trim
+        end
+    end
+
+    -- Decode keyholders JSON → array of citizenids
+    -- The column stores either a JSON array of citizenids (["CID1","CID2",...])
+    -- or a JSON object keyed by citizenid — we handle both.
+    local keyholderList = {}
+    if propRow.keyholders and propRow.keyholders ~= '' and propRow.keyholders ~= '{}' and propRow.keyholders ~= '[]' then
+        local ok, decoded = pcall(json.decode, propRow.keyholders)
+        if ok and decoded then
+            -- Array form: ["CID1", "CID2"]
+            if decoded[1] ~= nil then
+                for _, cid in ipairs(decoded) do
+                    keyholderList[#keyholderList + 1] = tostring(cid)
+                end
+            else
+                -- Object/map form: { CID1 = true, CID2 = 1, ... }
+                for cid, _ in pairs(decoded) do
+                    keyholderList[#keyholderList + 1] = tostring(cid)
+                end
+            end
+        end
+    end
+
+    -- Batch-resolve keyholder names
+    local keyholders = {}
+    if #keyholderList > 0 then
+        local placeholders = {}
+        for i = 1, #keyholderList do placeholders[i] = '?' end
+        local _P = TableMap.Players
+        local khRows = MySQL.query.await(([[
+            SELECT %s AS citizenid, %s AS firstname, %s AS lastname
+            FROM %s
+            WHERE %s IN (%s)
+        ]]):format(
+            _P.rawFields.citizenid, _P.rawFields.firstname, _P.rawFields.lastname,
+            _P.table,
+            _P.rawFields.citizenid,
+            table.concat(placeholders, ',')
+        ), keyholderList)
+
+        -- Build a lookup map for fast access
+        local nameMap = {}
+        for _, row in ipairs(khRows or {}) do
+            local full = ((row.firstname or '') .. ' ' .. (row.lastname or '')):match('^%s*(.-)%s*$')
+            nameMap[tostring(row.citizenid)] = full ~= '' and full or nil
+        end
+
+        -- Preserve original keyholder order
+        for _, cid in ipairs(keyholderList) do
+            -- Skip if the keyholder is the owner (already shown as owner)
+            if cid ~= propRow.owner then
+                keyholders[#keyholders + 1] = {
+                    citizenid = cid,
+                    name = nameMap[cid] or 'Unknown',
+                }
+            end
+        end
+    end
+
+
+    return {
+        success = true,
+        property = {
+            property_name = propRow.property_name,
+            coords        = coords,
+            streetName    = propRow.streetName,
+            owner         = propRow.owner or nil,
+            ownerName     = ownerName,
+            keyholders    = keyholders,
         }
     }
 end)

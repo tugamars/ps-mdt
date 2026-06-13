@@ -249,3 +249,28 @@ RegisterNUICallback('uploadSuspectPhoto', function(data, cb)
     local result = ps.callback(resourceName .. ':server:uploadSuspectPhoto', data.citizenid, data.image)
     cb(result or { success = false, message = 'Failed to upload photo' })
 end)
+
+RegisterNUICallback('getProperty', function(data, cb)
+    if not MDTOpen then cb({ success = false }) return end
+    if not data or not data.property_id then
+        cb({ success = false, message = 'Missing property id' })
+        return
+    end
+    local result = ps.callback(resourceName .. ':server:getProperty', data.property_id)
+
+    print(json.encode(result));
+
+    if not result or not result.success then
+        cb(result or { success = false, message = 'Property not found' })
+        return
+    end
+    cb(result)
+end)
+
+-- setWaypoint: sets a GPS blip on the map from NUI coords
+-- The NUI calls fetchNui('setWaypoint', { x, y }) — no server round-trip needed.
+RegisterNUICallback('setWaypoint', function(data, cb)
+    cb({})
+    if not data or not data.x or not data.y then return end
+    SetNewWaypoint(data.x, data.y)
+end)

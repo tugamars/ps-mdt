@@ -155,12 +155,18 @@ TableMap.Properties = {
         apartment   = 'pr.apartment',
         street      = 'pr.street',
         property_id = 'pr.property_id',
+        region = 'region',
+        coords = 'door_data',
+        keyholders = 'has_access'
     },
     rawFields = {
         owner       = 'CAST(owner_citizenid as UNSIGNED)',
         apartment   = 'apartment',
         street      = 'street',
         property_id = 'property_id',
+        region = 'region',
+        coords = 'door_data',
+        keyholders = 'has_access'
     },
 }
 

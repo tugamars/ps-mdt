@@ -83,6 +83,8 @@ export const NUI_EVENTS = {
 		ADD_SUSPECT_FINGERPRINT: "addSuspectFingerprint",
 		UPDATE_CITIZEN_DNA: "updateCitizenDNA",
 		UPDATE_CITIZEN_FINGERPRINT: "updateCitizenFingerprint",
+		GET_PROPERTY: "getProperty",
+		SET_WAYPOINT: "setWaypoint",
 	},
 	VEHICLE: {
 		GET_VEHICLES: "getVehicles",
