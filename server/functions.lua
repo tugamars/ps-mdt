@@ -158,28 +158,32 @@ function GetVehicleOwner(plate)
         local playerName = ps.getPlayerNameByIdentifier(result)
         ps.debug('Vehicle owner name: ' .. tostring(playerName))
         if playerName and playerName ~= 'Unknown Person' then
-            return playerName
+            return playerName, result
         end
     end
 
     -- If no owner or player name is found, return "Unknown Owner"
     ps.debug('No owner found for plate: ' .. plate)
-    return "Unknown Owner"
+    return "Unknown Owner", nil
 end
 
-function GetBoloStatus(plate)
-    if not plate then return false, "", "" end
+function GetBoloStatus(plate, ownerId)
+    if not plate and not ownerId then return false, "", "" end
     plate = string.gsub(plate, "%s+", "")
     plate = string.upper(plate)
+
+    local queryAdd="";
+    if(ownerId) then
+        queryAdd=" or (subject_id = ? and type = 'citizen')";
+    end
 
     local result = MySQL.single.await([[
         SELECT id, subject_name, notes
         FROM mdt_bolos
-        WHERE type = 'vehicle'
-          AND status = 'active'
-          AND UPPER(REPLACE(subject_id, ' ', '')) = ?
+        WHERE status = 'active'
+          AND ( (type = 'vehicle' and UPPER(REPLACE(subject_id, ' ', '')) = ?) ]] .. queryAdd .. [[ )
         LIMIT 1
-    ]], { plate })
+    ]], { plate, ownerId })
 
     if result then
         return true, result.subject_name or result.notes or "Active BOLO", tostring(result.id)
