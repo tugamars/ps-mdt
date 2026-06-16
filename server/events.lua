@@ -59,28 +59,138 @@ RegisterNetEvent(resourceName..':server:viewReport', function(reportId)
     ps.debug("Server: Viewing report:", reportId)
 end)
 
+local plateCache={};
+
+local plateCacheSrcs={};
+
 RegisterNetEvent("wk:onPlateScanned")
 AddEventHandler("wk:onPlateScanned", function(cam, plate, index)
     local src = source
     local Player = ps.getPlayer(src)
     local driversLicense = ps.getMetadata(src, 'licences') and ps.getMetadata(src, 'licences').driver
 
-    local vehicleOwner = GetVehicleOwner(plate)
-    local bolo, title, boloId = GetBoloStatus(plate)
-    local warrant, owner, incidentId = GetWarrantStatus(plate)
+    local vehicleOwner, bolo, title, boloid, warrant, owner, incidentId, ownerId = nil, false, nil, nil, false, nil, nil;
+
+    if(plateCache[plate] ~= nil) then
+        local pc=plateCache[plate];
+        vehicleOwner=pc.vehicleOwner;
+        bolo=pc.bolo;
+        title=pc.title;
+        boloid=pc.boloId;
+        warrant=pc.warrant;
+        owner=pc.owner;
+        incidentId=pc.incidentId;
+    else
+        vehicleOwner, ownerId = GetVehicleOwner(plate)
+        bolo, title, boloid = GetBoloStatus(plate,ownerId)
+        warrant, owner, incidentId = GetWarrantStatus(plate, ownerId)
+    end
+
+    plateCache[plate] = {
+        vehicleOwner = vehicleOwner,
+        bolo = bolo,
+        title = title,
+        boloId = boloid,
+        warrant = warrant,
+        owner = owner,
+        incidentId = incidentId
+    }
+
+    SetTimeout(1000 * 60 * 10, function()
+        plateCache[plate] = nil
+    end)
 
     if bolo == true then
-        ps.notify(src, 'BOLO ID: '..boloId..' | Title: '..title..' | Registered Owner: '..vehicleOwner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
+        ps.notify(src, 'BOLO ID: '..boloid..' | Title: '..title..' | Registered Owner: '..vehicleOwner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
+
+        plateCacheSrcs[src] = plate
+
+        setTimeout(Config.WknightNotifyTime*2, function()
+            if plateCacheSrcs[src] and plateCacheSrcs[src] == plate then
+                plateCacheSrcs[src] = nil
+            end
+        end)
+
     end
     if warrant == true then
         ps.notify(src, 'WANTED - INCIDENT ID: '..incidentId..' | Registered Owner: '..owner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
+
+        plateCacheSrcs[src] = plate
+
+        setTimeout(Config.WknightNotifyTime*2, function()
+            if plateCacheSrcs[src] and plateCacheSrcs[src] == plate then
+                plateCacheSrcs[src] = nil
+            end
+        end)
     end
 
     if Config.PlateScanForDriversLicense and driversLicense == false and vehicleOwner then
         ps.notify(src, 'NO DRIVERS LICENCE | Registered Owner: '..vehicleOwner..' | Plate: '..plate, 'error', Config.WolfknightNotifyTime)
+
+        plateCacheSrcs[src] = plate
+
+        setTimeout(Config.WknightNotifyTime*2, function()
+            if plateCacheSrcs[src] and plateCacheSrcs[src] == plate then
+                plateCacheSrcs[src] = nil
+            end
+        end)
+
     end
 
     if bolo or warrant or (Config.PlateScanForDriversLicense and not driversLicense) and vehicleOwner then
         TriggerClientEvent("wk:togglePlateLock", src, cam, true, 1)
     end
+end)
+
+RegisterNetEvent("wk:onPlateLocked", function(cam, plate, index)
+    if(plateCacheSrcs[source] and plateCacheSrcs[source] == plate) then
+        return false;
+    end
+    local src = source
+    local Player = ps.getPlayer(src)
+    local driversLicense = ps.getMetadata(src, 'licences') and ps.getMetadata(src, 'licences').driver
+
+    local vehicleOwner, bolo, title, boloid, warrant, owner, incidentId, ownerId = nil, false, nil, nil, false, nil, nil;
+
+    if(plateCache[plate] ~= nil) then
+        local pc=plateCache[plate];
+        vehicleOwner=pc.vehicleOwner;
+        bolo=pc.bolo;
+        title=pc.title;
+        boloid=pc.boloId;
+        warrant=pc.warrant;
+        owner=pc.owner;
+        incidentId=pc.incidentId;
+    else
+        vehicleOwner, ownerId = GetVehicleOwner(plate)
+        bolo, title, boloid = GetBoloStatus(plate,ownerId)
+        warrant, owner, incidentId = GetWarrantStatus(plate, ownerId)
+    end
+
+    plateCache[plate] = {
+        vehicleOwner = vehicleOwner,
+        bolo = bolo,
+        title = title,
+        boloId = boloid,
+        warrant = warrant,
+        owner = owner,
+        incidentId = incidentId
+    }
+
+    SetTimeout(1000 * 60 * 10, function()
+        plateCache[plate] = nil
+    end)
+
+    if(not vehicleOwner or not ownerId) then
+        ps.notify(src, 'Plate: '..plate..' | Return: No registered owner found.', 'error', Config.WolfknightNotifyTime)
+        return
+    else
+        if(not vehicleOwner or not ownerId) then
+            ps.notify(src, 'Plate: '..plate..' | Registered owner: ' .. tostring(vehicleOwner), 'info', Config.WolfknightNotifyTime)
+            return
+        end
+    end
+
+
+
 end)
