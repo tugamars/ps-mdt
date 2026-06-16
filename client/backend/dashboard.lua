@@ -245,7 +245,7 @@ RegisterNUICallback('getRecentDispatches', function(_, cb)
 end)
 
 -- Real-time dispatch listener (from ps-dispatch)
-RegisterNetEvent('ps-dispatch:client:notify', function(data)
+RegisterNetEvent("tgm:dispatch:client:notify:call", function(data)
     if not MDTOpen then return end
     if not data then return end
     SendNUI('updateRecentDispatches', GetRecentDispatch() or {})
@@ -264,7 +264,15 @@ end)
 RegisterNUICallback("attachToDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
     local playerData = buildPlayerData()
-    TriggerServerEvent('ps-dispatch:server:attach', data, playerData)
+
+    local d = {};
+    if(type(data) == "table") then
+        d = data;
+    else
+        d = {callId=data};
+    end
+
+    TriggerServerEvent('tgm:dispatch:attach:call', d, playerData)
     cb(GetRecentDispatch())
     -- ps.debug('Attached to Dispatch Call: ' .. json.encode(data))
 end)
@@ -272,7 +280,15 @@ end)
 RegisterNUICallback("detachFromDispatch", function(data, cb)
     if not MDTOpen then cb({}) return end
     local playerData = buildPlayerData()
-    TriggerServerEvent('ps-dispatch:server:detach', data, playerData)
+
+    local d = {};
+    if(type(data) == "table") then
+        d = data;
+    else
+        d = {callId=data};
+    end
+
+    TriggerServerEvent('tgm:dispatch:attach:call', d, playerData)
     Wait(100) -- wait to make sure non 1of1 servers have time to alter a server side table faster than the cb :kek:
     cb(GetRecentDispatch())
     -- ps.debug('Detached from Dispatch Call: ' .. json.encode(data))
