@@ -22,12 +22,14 @@ shared_scripts {
 }
 
 client_script {
-  'client/**.lua'
+  'client/**.lua',
+  'modules/**/client/**/*.lua',
 }
 
 server_scripts {
   '@oxmysql/lib/MySQL.lua',
-  'server/table_map.lua',   -- must be first: defines TableMap used by all backend files
+  'server/module_loader.lua', -- Must be loaded first to create the MDT global
+  'server/table_map.lua',
   'server/auth.lua',
   'server/cache.lua',
   'server/cameras.lua',
@@ -37,11 +39,23 @@ server_scripts {
   'server/functions.lua',
   'server/main.lua',
   'server/backend/**.lua',
+  'modules/**/server/**/*.lua',
 }
 
 files {
   'web/dist/index.html',
-  'web/dist/**/*'
+  'web/dist/**/*',
+  'modules/**/*.json',
+  -- Module UI bundles must be explicitly included in this resource's file
+  -- pack. Nested module fxmanifest files are not loaded as separate resources.
+  'modules/**/web/dist/*.js',
+  'modules/**/web/dist/**/*.js',
+  'modules/**/web/dist/**/*.css',
+  'modules/**/web/dist/**/*',
+}
+
+exports {
+  'RegisterModule'
 }
 
 data_file 'DLC_ITYP_REQUEST' 'stream/ps-mdt.ytyp'

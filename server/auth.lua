@@ -246,6 +246,8 @@ ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermission
         local ok, decoded = pcall(json.decode, row.permissions)
         if ok and type(decoded) == 'table' then
             return { permissions = decoded, isBoss = false }
+        else
+            return { permissions = row.permissions or {}, isBoss = false }
         end
     end
 

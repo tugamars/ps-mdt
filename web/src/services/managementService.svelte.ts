@@ -15,6 +15,16 @@ export interface PermissionRolesResponse {
 	label: string;
 	roles: PermissionRole[];
 	permissions?: string[];
+	permissionDefinitions?: PermissionDefinition[];
+}
+
+export interface PermissionDefinition {
+	id: string;
+	label?: string;
+	description?: string;
+	category?: string;
+	moduleId: string;
+	moduleName?: string;
 }
 
 export function createManagementService() {
@@ -22,6 +32,7 @@ export function createManagementService() {
 	let jobLabel = $state("Law Enforcement");
 	let jobName = $state("police");
 	let permissions = $state<string[]>([]);
+	let permissionDefinitions = $state<PermissionDefinition[]>([]);
 	let isLoading = $state(false);
 	let isSaving = $state(false);
 	let statusMessage = $state<{ text: string; type: "success" | "error" } | null>(null);
@@ -59,6 +70,7 @@ export function createManagementService() {
 				jobLabel = response.label || jobLabel;
 				jobName = response.job || jobName;
 				permissions = response.permissions || permissions;
+				permissionDefinitions = response.permissionDefinitions || [];
 			}
 		} catch {
 			roles = [];
@@ -162,6 +174,7 @@ export function createManagementService() {
 		get jobLabel() { return jobLabel; },
 		get jobName() { return jobName; },
 		get permissions() { return permissions; },
+		get permissionDefinitions() { return permissionDefinitions; },
 		get isLoading() { return isLoading; },
 		get isSaving() { return isSaving; },
 		get statusMessage() { return statusMessage; },

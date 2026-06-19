@@ -1,5 +1,6 @@
 import type { ComponentId, MDTTab } from "../constants";
 import { TAB_TO_COMPONENT_MAP } from "../constants";
+import { moduleService } from "./moduleService.svelte";
 import type { TabInstance } from "../interfaces/IMDT";
 import {
 	loadInstancesFromStorage,
@@ -71,7 +72,10 @@ export function createTabService() {
 				if (activeInstance) {
 					const componentId = TAB_TO_COMPONENT_MAP[
 						activeInstance.currentTab as keyof typeof TAB_TO_COMPONENT_MAP
-					] as ComponentId;
+					] as ComponentId | undefined;
+					if (!componentId && moduleService.getTabByName(activeInstance.currentTab)) {
+						return "module_page";
+					}
 					if (!componentId) {
 						console.warn(
 							`MDT: Unknown tab '${activeInstance.currentTab}', using Dashboard`,

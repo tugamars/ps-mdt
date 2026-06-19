@@ -120,7 +120,7 @@ export function getReportTypesForJob(jobType: 'leo' | 'ems' | 'doj'): readonly s
 	return LEO_REPORT_TYPES;
 }
 
-export type MDTTab = (typeof MDT_TABS)[number]["name"];
+export type MDTTab = string;
 
 /** Component identifiers for tab routing */
 export type ComponentId =
@@ -148,10 +148,11 @@ export type ComponentId =
 	| "court_orders"
 	| "legal_documents"
 	| "management"
-	| "settings";
+	| "settings"
+    | "module_page";
 
 /** Tab name to component ID mapping */
-export const TAB_TO_COMPONENT_MAP: Record<MDTTab, ComponentId> = {
+export const TAB_TO_COMPONENT_MAP: Record<string, ComponentId> = {
 	Dashboard: "dashboard",
 	Citizens: "citizens",
 	BOLOs: "bolos",
@@ -253,6 +254,7 @@ export const COMPONENT_DISPLAY_NAMES: Record<ComponentId, string> = {
 	legal_documents: "Legal Documents",
 	management: "Settings",
 	settings: "Preferences",
+    module_page: "Module Page",
 } as const;
 
 /** Components that render placeholder content */

@@ -5,6 +5,11 @@ ps = exports.ps_lib:init()
 Config.Debug = false -- Enable/disable debug mode (boolean)
 Config.OnlyShowOnDuty = true -- Only allow the MDT to be opened when on duty (boolean)
 
+-- Add a list of modules to load
+Config.Modules = {
+    'example_module'
+}
+
 -- Civilian Access Settings
 Config.CivilianAccess = {
     enabled = true,   -- Allow civilians to open the MDT (profile + legislation view only)
@@ -86,14 +91,14 @@ Config.Commands = {
 
 -- Dispatch Settings
 Config.Dispatch = {
-    Resource = 'ps-dispatch',
+    Resource = 'tugamars_dispatch',
     FilterByJob = true,
 }
 
 -- Wolfknight Plate Reader Settings
 Config.UseWolfknightRadar = true -- Enable/disable Wolfknight radar integration
 Config.WolfknightNotifyTime = 5000 -- Duration (ms) for plate reader notifications
-Config.PlateScanForDriversLicense = true -- Check driver's license on plate scan
+Config.PlateScanForDriversLicense = false -- Check driver's license on plate scan
 
 -- Fingerprint Settings
 Config.FingerprintAutoFilled = false -- Auto-populate fingerprints on citizen profiles (if false, officers must manually add fingerprints)

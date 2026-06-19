@@ -33,6 +33,8 @@
 	import WarrantReview from "../pages/doj/WarrantReview.svelte";
 	import CourtOrders from "../pages/doj/CourtOrders.svelte";
 	import LegalDocuments from "../pages/doj/LegalDocuments.svelte";
+    import ModulePage from "./ModulePage.svelte";
+	import { moduleService } from "../services/moduleService.svelte";
 	import type { createInstanceStateService } from "../services/instanceStateService.svelte";
 	import type { createTabService } from "../services/tabService.svelte";
 
@@ -126,6 +128,13 @@
 	const DOJ_SHARED_PAGES = ["reports", "citizens", "cases", "evidence", "charges"];
 
 	function canAccessPage(pageId: string): boolean {
+		if (pageId === "module_page") {
+			const moduleTab = moduleService.getTabByName(tabService.getActiveInstanceTab());
+			if (!moduleTab) return false;
+			if (moduleTab.jobs?.length && !moduleTab.jobs.includes(authService.jobType)) return false;
+			if (!moduleTab.permissions?.length) return true;
+			return authService.hasAnyPermission(...moduleTab.permissions);
+		}
 		if (authService.jobType === "doj" && DOJ_SHARED_PAGES.includes(pageId)) return true;
 		const requiredPerms = PAGE_PERMISSIONS[pageId];
 		if (!requiredPerms) return true;
@@ -237,6 +246,8 @@
 			<CourtOrders {tabService} {authService} />
 		{:else if activeComponent === "legal_documents"}
 			<LegalDocuments {tabService} {authService} />
+        {:else if activeComponent === "module_page"}
+            <ModulePage {tabService} {authService} />
 		{:else if isPlaceholderComponent(activeComponent)}
 			<PlaceholderContent componentId={activeComponent} />
 		{:else}
