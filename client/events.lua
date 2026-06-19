@@ -1,62 +1,95 @@
-local tabsCache = {}
-local moduleNuiCallbacks = {}
+local resourceName = tostring(GetCurrentResourceName())
 
-function RegisterModuleNUICallback(moduleId, callbackName, handler)
-    if type(moduleId) ~= 'string' or not moduleId:match('^[%w_-]+$') then return false end
-    if type(callbackName) ~= 'string' or not callbackName:match('^[%w_-]+$') then return false end
-    if type(handler) ~= 'function' then return false end
-    moduleNuiCallbacks[moduleId .. ':' .. callbackName] = handler
-    return true
+local function isDojJob(jobName)
+    if not jobName or not Config.DojJobs then return false end
+    for _, name in ipairs(Config.DojJobs) do
+        if name == jobName then return true end
+    end
+    return false
 end
 
-exports('RegisterModuleNUICallback', RegisterModuleNUICallback)
+local function isAuthorizedJob(job)
+    if not job then return false, nil end
+    if job.type == Config.PoliceJobType then return true, 'leo' end
+    if job.type == Config.MedicalJobType then return true, 'ems' end
+    if isDojJob(job.name) or (Config.DojJobType and job.type == Config.DojJobType) then return true, 'doj' end
+    return false, nil
+end
 
-RegisterNUICallback('moduleCallback', function(payload, cb)
-    payload = payload or {}
-    local moduleId = payload.moduleId
-    local callbackName = payload.callback
-    if type(moduleId) ~= 'string' or type(callbackName) ~= 'string' then
-        cb({ success = false, message = 'Invalid module callback' })
-        return
-    end
+function NUIUpdateAuthWithData(jobData)
+    local job = jobData or ps.getJob()
+    local authorized, jobType = isAuthorizedJob(job)
+    local onDuty = job and job.onduty or false
 
-    local handler = moduleNuiCallbacks[moduleId .. ':' .. callbackName]
-    if not handler then
-        cb({ success = false, message = 'Module callback not found' })
-        return
-    end
-
-    local replied = false
-    local function reply(result)
-        if replied then return end
-        replied = true
-        cb(result == nil and {} or result)
-    end
-
-    local ok, result = pcall(handler, payload.data or {}, reply)
-    if not ok then
-        print(('[ps-mdt] ^1Module NUI callback failed (%s:%s): %s'):format(moduleId, callbackName, result))
-        reply({ success = false, message = 'Module callback failed' })
-    elseif result ~= nil then
-        reply(result)
-    end
-end)
-
--- NUI Callback to get the tabs
-RegisterNUICallback('getModuleTabs', function(_, cb)
-    -- Trigger a server event to request the tabs
-    TriggerServerEvent('ps-mdt:getModuleTabs')
-    -- The response will be handled by the 'ps-mdt:setModuleTabs' event below.
-    -- We'll return the cached tabs for now, which will be populated by the event.
-    cb(tabsCache)
-end)
-
--- Listen for the server's response
-RegisterNetEvent('ps-mdt:setModuleTabs', function(tabs)
-    tabsCache = tabs
-    -- Send the updated tabs to the NUI
-    SendNUIMessage({
-        action = 'setModuleTabs',
-        data = tabsCache
+    SendNUI('updateAuth', {
+        authorized = authorized and onDuty,
+        playerData = ps.getPlayerData(),
+        isLEO = authorized,
+        onDuty = onDuty,
+        jobType = jobType or 'leo'
     })
+end
+
+local function onJobUpdate(JobInfo)
+    local job = JobInfo or ps.getJob()
+    ps.debug('Updated job info:', job)
+
+    if MDTOpen then
+        local authorized = isAuthorizedJob(job)
+
+        if not authorized then
+            CloseMDT()
+            ps.notify('MDT closed - Access revoked', 'error')
+        else
+            NUIUpdateAuthWithData(job)
+        end
+    end
+end
+
+local function onSetDuty(duty)
+    if MDTOpen then
+        local job = ps.getJob()
+        if job then
+            job.onduty = duty
+            NUIUpdateAuthWithData(job)
+
+            local authorized = isAuthorizedJob(job)
+            if not authorized then
+                CloseMDT()
+                ps.notify('MDT closed - Access revoked', 'error')
+            end
+        end
+    end
+end
+
+RegisterNetEvent('QBCore:Client:SetDuty', function(duty)
+    ps.debug('SetDuty event received:', duty)
+    onSetDuty(duty)
 end)
+
+RegisterNetEvent('QBCore:Client:OnJobUpdate', function(JobInfo)
+    ps.debug('OnJobUpdate event received:', JobInfo)
+    onJobUpdate(JobInfo)
+end)
+
+RegisterNetEvent('esx:setJob', function(job)
+    ps.debug('esx:setJob event received:', job)
+    onJobUpdate(job)
+end)
+
+-- Send Profile Data
+RegisterNetEvent(resourceName..':client:sendProfile', function(data)
+    if MDTOpen then
+        SendNUI('updateProfile', data)
+    end
+end)
+
+-- Handle player death
+if GetResourceState('baseevents') == 'started' then
+    RegisterNetEvent('baseevents:onPlayerDied', function()
+        if MDTOpen then
+            ps.debug('Player died')
+            CloseMDT()
+        end
+    end)
+end
