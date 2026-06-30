@@ -128,13 +128,13 @@ Config.PoliceJobs = {
     'gov_business'
 }
 
-Config.DojJobType = "doj"
+Config.DojJobType = "law"
 Config.DojJobs = {
     'lawyer',
     'judge',
 }
 
-Config.MedicalJobType = "ems"
+Config.MedicalJobType = "EMS_FD"
 Config.MedicalJobs = {
     'ambulance',
 }
