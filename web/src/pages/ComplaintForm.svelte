@@ -107,8 +107,7 @@
 
             // Auto-close after 3 seconds
             setTimeout(() => {
-                resetForm();
-                onClose();
+                handleCancel();
             }, 3000);
         } catch (err) {
             errorMessage = "Failed to submit complaint. Please try again.";
