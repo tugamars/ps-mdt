@@ -1,5 +1,21 @@
 function GetActiveUnits()
-    return ps.getJobCount("police")
+    local players=ps.getAllPlayers()
+    local activeUnits={};
+    for i=1,#players do
+        local src=players[i];
+        local job=ps.getJob(src);
+        if(job and IsPoliceJob(job.name, job.type)) then
+            local name=ps.getPlayerName(src);
+            activeUnits[#activeUnits+1]={
+                source=src,
+                name=name,
+                job=job.name,
+                jobType=job.type
+            }
+        end
+    end
+
+    return #activeUnits, activeUnits;
 end
 
 --- Check if a job is a police/LEO job based on Config.PoliceJobs and Config.PoliceJobType
