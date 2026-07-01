@@ -36,7 +36,7 @@
 	const offsetY = 31;
 
 	function toMapLatLng(coords: { x: number; y: number }) {
-		return [ coords.y - offsetY, coords.x + offsetX];
+		return [ coords.y, coords.x];
 	}
 
 	function getTrackConfig(kind: "officer" | "vehicle" | "bodycam") {
@@ -173,7 +173,7 @@
 					x_difference * x_difference + y_difference * y_difference,
 				);
 			},
-			transformation: new Transformation(0.02072, 117.3, -0.0205, 172.8),
+			transformation: new Transformation(0.02061188, 117.41909, -0.02059566, 172.62816),
 			infinite: false,
 		});
 	}
