@@ -13,10 +13,12 @@ function CheckAuth(source, silent)
     local jobType = ps.getJobType(source)
     local jobName = ps.getJobName(source)
     local dojCheck = isDojJob(jobName) or (Config.DojJobType and jobType == Config.DojJobType)
+
+
     if jobType ~= Config.PoliceJobType and jobType ~= Config.MedicalJobType and not dojCheck then
         ps.debug('Access Denied for ID: ' .. source .. ', Name: ' .. ps.getPlayerName(source) .. ', not an authorized job type! Job Type: ' .. tostring(jobType) .. ', Job Name: ' .. tostring(jobName))
         if not silent then
-            ps.notify(source, 'Access Denied: Authorized Personnel Only', 'error')
+            --ps.notify(source, 'Access Denied: Authorized Personnel Only', 'error')
         end
         return false
     else
@@ -216,7 +218,7 @@ end)
 -- Get the current player's permissions based on their job + grade
 ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermissions', function(source)
     local src = source
-    if not CheckAuth(src, true) then return { permissions = {} } end
+    if not CheckAuth(src, false) then return { permissions = {} } end
 
     local jobName = ps.getJobName(src) or 'police'
     local jobData = ps.getJobData and ps.getJobData(src) or nil
