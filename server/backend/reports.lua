@@ -355,7 +355,7 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
                     mp.profilepicture AS image
                 FROM %s %s
                 LEFT JOIN mdt_profiles mp ON %s
-                WHERE %s COLLATE utf8mb4_general_ci IN (%s)
+                WHERE %s IN (%s)
             ]]):format(
                 _P.fields.citizenid,
                 TableMap.fullNameConcat(),
@@ -566,7 +566,7 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
             %s AS citizenid,
             %s AS owner_name
         FROM %s %s
-        LEFT JOIN %s %s ON %s COLLATE utf8mb4_general_ci = %s COLLATE utf8mb4_general_ci
+        LEFT JOIN %s %s ON %s = %s
         WHERE (
             %s LIKE ?
             OR %s LIKE ?

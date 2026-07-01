@@ -108,7 +108,7 @@ ps.registerCallback(resourceName .. ':server:getCases', function(source, page, f
                mp.callsign AS primary_officer_callsign
         FROM mdt_cases mc
         LEFT JOIN mdt_case_officers mco ON mco.case_id = mc.id AND mco.role = 'primary'
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = mco.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN mdt_profiles mp ON mp.citizenid = mco.citizenid
         %s
         ORDER BY mc.updated_at DESC
         LIMIT ? OFFSET ?
@@ -138,7 +138,7 @@ ps.registerCallback(resourceName .. ':server:getCase', function(source, caseId)
         SELECT mco.citizenid, mco.role, mco.assigned_by, mco.assigned_at,
                mp.fullname, mp.callsign, mp.badge_number, mp.rank, mp.department
         FROM mdt_case_officers mco
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = mco.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN mdt_profiles mp ON mp.citizenid = mco.citizenid
         WHERE mco.case_id = ?
         ORDER BY mco.assigned_at ASC
     ]], { caseId })

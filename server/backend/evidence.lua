@@ -35,7 +35,7 @@ ps.registerCallback(resourceName .. ':server:getEvidenceItems', function(source,
     listValues[#listValues + 1] = offset
 
     local evidence = MySQL.query.await(([[
-        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by, created_at, updated_at
+        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, `stored`, last_holder, created_by, created_at, updated_at
         FROM mdt_evidence_items
         WHERE %s
         ORDER BY created_at DESC
@@ -76,7 +76,7 @@ ps.registerCallback(resourceName .. ':server:searchEvidenceItems', function(sour
     local total = totalRow and totalRow.total or 0
 
     local evidence = MySQL.query.await([[
-        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by, created_at, updated_at
+        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, `stored`, last_holder, created_by, created_at, updated_at
         FROM mdt_evidence_items
         WHERE title LIKE ? OR serial LIKE ? OR notes LIKE ? OR location LIKE ? OR stash_id LIKE ?
         ORDER BY created_at DESC
@@ -94,12 +94,11 @@ ps.registerCallback(resourceName .. ':server:searchEvidenceItems', function(sour
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, payload)
+ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source,caseId, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
     payload = payload or {}
-    local caseId = tonumber(payload.caseId)
     local reportId = tonumber(payload.reportId)
     local evidence = payload.evidence or payload
 
@@ -109,7 +108,7 @@ ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, 
 
     local evidenceId = MySQL.insert.await([[
         INSERT INTO mdt_evidence_items
-        (case_id, report_id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by)
+        (case_id, report_id, title, type, serial, notes, location, stash_id, `stored`, last_holder, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         caseId,
@@ -144,6 +143,8 @@ end)
 ps.registerCallback(resourceName .. ':server:updateEvidenceItem', function(source, evidenceId, evidence)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+
+    print("Update evidence item");
 
     evidenceId = tonumber(evidenceId)
     if not evidenceId or not evidence then

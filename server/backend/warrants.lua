@@ -58,7 +58,7 @@ ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source
             %s AS firstname,
             %s AS lastname
         FROM mdt_reports_warrants w
-        LEFT JOIN %s %s ON %s = w.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN %s %s ON %s = w.citizenid
         WHERE w.expirydate >= NOW()
         ORDER BY w.expirydate ASC
     ]]):format(

@@ -1209,8 +1209,8 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
             %s AS dateofbirth,
             %s AS phone,
             %s AS metadata,
-            (SELECT COUNT(*) FROM mdt_reports_charges WHERE citizenid COLLATE utf8mb4_general_ci = %s) AS arrests,
-            (SELECT COUNT(*) FROM %s WHERE %s COLLATE utf8mb4_general_ci = %s) AS vehicle_count
+            (SELECT COUNT(*) FROM mdt_reports_charges WHERE citizenid = %s) AS arrests,
+            (SELECT COUNT(*) FROM %s WHERE %s = %s) AS vehicle_count
         FROM %s %s WHERE %s = ? LIMIT 1
     ]]):format(
         _P.fields.citizenid, _P.fields.firstname, _P.fields.lastname,
@@ -1240,7 +1240,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
 
     -- Profile picture from mdt_profiles
     local prOk, profileRow = pcall(MySQL.single.await,
-        'SELECT profilepicture, notes FROM mdt_profiles WHERE citizenid COLLATE utf8mb4_general_ci = ? LIMIT 1',
+        'SELECT profilepicture, notes FROM mdt_profiles WHERE citizenid = ? LIMIT 1',
         { citizenid })
     profileRow = prOk and profileRow or nil
     local image = (profileRow and profileRow.profilepicture and profileRow.profilepicture ~= '') and profileRow.profilepicture or nil
@@ -1251,7 +1251,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     local activeWarrants = {}
     if civConfig.showWarrants ~= false then
         local wOk, wResult = pcall(MySQL.query.await,
-            'SELECT reportid, expirydate FROM mdt_reports_warrants WHERE citizenid COLLATE utf8mb4_general_ci = ? AND expirydate >= NOW() ORDER BY expirydate ASC',
+            'SELECT reportid, expirydate FROM mdt_reports_warrants WHERE citizenid = ? AND expirydate >= NOW() ORDER BY expirydate ASC',
             { citizenid })
         activeWarrants = wOk and wResult or {}
     end
@@ -1260,7 +1260,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     local activeBolos = {}
     if civConfig.showBolos ~= false then
         local bOk, bResult = pcall(MySQL.query.await,
-            'SELECT id, reportId, type, notes FROM mdt_bolos WHERE status = ? AND subject_id COLLATE utf8mb4_general_ci = ? ORDER BY id DESC',
+            'SELECT id, reportId, type, notes FROM mdt_bolos WHERE status = ? AND subject_id = ? ORDER BY id DESC',
             { 'active', citizenid })
         activeBolos = bOk and bResult or {}
     end
@@ -1279,7 +1279,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     local linkedReports = {}
 
     local riOk, involvedReports = pcall(MySQL.query.await,
-        'SELECT reportid FROM mdt_reports_involved WHERE citizenid COLLATE utf8mb4_general_ci = ?',
+        'SELECT reportid FROM mdt_reports_involved WHERE citizenid = ?',
         { citizenid })
     for _, row in ipairs(riOk and involvedReports or {}) do
         local rid = tonumber(row.reportid)
@@ -1287,7 +1287,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
     end
 
     local rcOk, chargedReports = pcall(MySQL.query.await,
-        'SELECT reportid FROM mdt_reports_charges WHERE citizenid COLLATE utf8mb4_general_ci = ?',
+        'SELECT reportid FROM mdt_reports_charges WHERE citizenid = ?',
         { citizenid })
     for _, row in ipairs(rcOk and chargedReports or {}) do
         local rid = tonumber(row.reportid)
@@ -1303,7 +1303,7 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
 
     -- Vehicles
     local vOk, vehicles = pcall(MySQL.query.await,
-        ('SELECT %s AS plate, %s AS vehicle FROM %s WHERE %s COLLATE utf8mb4_general_ci = ?'):format(
+        ('SELECT %s AS plate, %s AS vehicle FROM %s WHERE %s = ?'):format(
             TableMap.Vehicles.rawFields.plate, TableMap.Vehicles.rawFields.vehicle,
             TableMap.Vehicles.table, TableMap.Vehicles.rawFields.citizenid
         ),
@@ -1312,13 +1312,13 @@ ps.registerCallback(resourceName .. ':server:getMyProfile', function(source)
 
     -- Weapons
     local wpOk, weapons = pcall(MySQL.query.await,
-        'SELECT id, serial, scratched, weaponModel FROM mdt_weapons WHERE owner COLLATE utf8mb4_general_ci = ?',
+        'SELECT id, serial, scratched, weaponModel FROM mdt_weapons WHERE owner = ?',
         { citizenid })
     weapons = wpOk and weapons or {}
 
     -- Custom licenses
     local clOk, customLicenses = pcall(MySQL.query.await,
-        'SELECT cl.id, cl.name, cl.description, COALESCE(cil.active, 0) as active FROM mdt_custom_licenses cl LEFT JOIN mdt_citizen_licenses cil ON cil.license_id = cl.id AND cil.citizenid COLLATE utf8mb4_general_ci = ? ORDER BY cl.id ASC',
+        'SELECT cl.id, cl.name, cl.description, COALESCE(cil.active, 0) as active FROM mdt_custom_licenses cl LEFT JOIN mdt_citizen_licenses cil ON cil.license_id = cl.id AND cil.citizenid = ? ORDER BY cl.id ASC',
         { citizenid })
     customLicenses = clOk and customLicenses or {}
 

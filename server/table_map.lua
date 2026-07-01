@@ -214,7 +214,7 @@ function TableMap.joinCondition(mdtAlias)
     local P = TableMap.Players
     mdtAlias = mdtAlias or 'mp'
     return P.alias .. '.' .. P.joinKey
-        .. ' = ' .. mdtAlias .. '.citizenid COLLATE utf8mb4_general_ci'
+        .. ' = ' .. mdtAlias .. '.citizenid'
 end
 
 --- Return just the player-side join expression ("p.character_id" / "p.citizenid").
