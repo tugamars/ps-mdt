@@ -339,6 +339,27 @@ CREATE TABLE IF NOT EXISTS `mdt_reports_charges` (
   CONSTRAINT `FK_mdt_reports_charges_mdt_reports` FOREIGN KEY (`reportid`) REFERENCES `mdt_reports` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+CREATE TABLE IF NOT EXISTS `mdt_sentencing_actions` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `reportid` int(10) unsigned NOT NULL,
+  `citizenid` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `action` enum('fine','jail') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `amount` int(10) unsigned DEFAULT NULL,
+  `sentence` int(10) unsigned DEFAULT NULL,
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'issued',
+  `external_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `external_reference` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `metadata` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `created_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `paid_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_sentencing_action` (`reportid`,`citizenid`,`action`),
+  KEY `idx_sentencing_external_id` (`external_id`),
+  KEY `idx_sentencing_citizenid` (`citizenid`),
+  CONSTRAINT `FK_mdt_sentencing_actions_mdt_reports` FOREIGN KEY (`reportid`) REFERENCES `mdt_reports` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS `mdt_reports_evidence` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `reportid` int(10) unsigned NOT NULL,

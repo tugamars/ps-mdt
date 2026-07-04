@@ -170,18 +170,18 @@ export function createReportService() {
 		}
 	}
 
-	async function sendToJail(citizenId: string, sentence: number): Promise<{ success: boolean; message?: string }> {
+	async function sendToJail(citizenId: string, sentence: number, reportId?: string): Promise<{ success: boolean; message?: string }> {
 		return fetchNui<{ success: boolean; message?: string }>(
 			NUI_EVENTS.SENTENCING.SEND_TO_JAIL,
-			{ citizenId, sentence },
+			{ citizenId, sentence, reportId },
 			{ success: true, message: `Sent to jail for ${sentence} months` },
 		);
 	}
 
-	async function giveCitation(citizenId: string, fine: number, reportId?: string): Promise<{ success: boolean; message?: string }> {
+	async function giveCitation(citizenId: string, fine: number, reportId?: string, charges?: any[]): Promise<{ success: boolean; message?: string }> {
 		return fetchNui<{ success: boolean; message?: string }>(
 			NUI_EVENTS.SENTENCING.GIVE_CITATION,
-			{ citizenId, fine, reportId },
+			{ citizenId, fine, reportId, charges },
 			{ success: true, message: "Citation given" },
 		);
 	}

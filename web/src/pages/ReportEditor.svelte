@@ -496,7 +496,7 @@
 
 	async function handleSendToJail(citizenid: string, months: number) {
 		try {
-			const result = await reportService.sendToJail(citizenid, months);
+			const result = await reportService.sendToJail(citizenid, months, report.reportId);
 			showStatus(result.message || `Sent to jail for ${months} months`);
 		} catch {
 			showStatus("Failed to send to jail", "error");
@@ -505,7 +505,8 @@
 
 	async function handleGiveCitation(citizenid: string, fine: number) {
 		try {
-			const result = await reportService.giveCitation(citizenid, fine, report.reportId);
+			const charges = report.charges.filter((charge) => charge.citizenid === citizenid);
+			const result = await reportService.giveCitation(citizenid, fine, report.reportId, charges);
 			showStatus(result.message || `Citation issued: $${fine.toLocaleString()}`);
 		} catch {
 			showStatus("Failed to issue citation", "error");
