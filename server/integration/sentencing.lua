@@ -14,6 +14,16 @@ local function getDueAt(days)
     return os.date('!%Y-%m-%d %H:%M:%S', os.time() + ((days or 7) * 86400))
 end
 
+local function trim(value)
+    return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
+end
+
+local function splitName(fullName)
+    fullName = trim(fullName)
+    local firstname, surname = fullName:match('^(%S+)%s+(.+)$')
+    return firstname or fullName, surname or ''
+end
+
 local function buildFineInvoiceItems(reportId, citizenId, payloadCharges, fallbackFine)
     local chargeLines = {}
     local total = 0
@@ -97,6 +107,117 @@ local function buildFineInvoiceItems(reportId, citizenId, payloadCharges, fallba
     return items, total
 end
 
+local function getFineCharges(reportId, citizenId, payloadCharges)
+    local charges = {}
+
+    if type(payloadCharges) == 'table' then
+        for _, charge in ipairs(payloadCharges) do
+            if charge and (not charge.citizenid or charge.citizenid == citizenId) then
+                charges[#charges + 1] = charge
+            end
+        end
+    end
+
+    if #charges > 0 or not reportId then
+        return charges
+    end
+
+    return MySQL.query.await([[
+        SELECT charge, count, fine
+        FROM mdt_reports_charges
+        WHERE reportid = ? AND citizenid = ?
+        ORDER BY id ASC
+    ]], { reportId, citizenId }) or {}
+end
+
+local function getCitationData(source, payload, total)
+    local data = payload.citationData or payload
+    local info = {}
+    local reportId = payload.reportId
+    local citizenId = payload.citizenId
+
+    local citizenName = data.fullname or data.name or ps.getPlayerNameByIdentifier(citizenId)
+    local firstname, surname = splitName(citizenName)
+    info.firstname = data.firstname or firstname
+    info.surname = data.surname or data.lastname or surname
+    info.date = data.date or os.date('%Y-%m-%d')
+    info.postal = data.postal
+    info.street = data.street
+
+    local vehicle = nil
+    if reportId then
+        vehicle = MySQL.single.await([[
+            SELECT plate, vehicle_label
+            FROM mdt_report_vehicles
+            WHERE reportid = ?
+            ORDER BY id ASC
+            LIMIT 1
+        ]], { reportId })
+    end
+
+    local plate = data.plate or payload.plate or (vehicle and vehicle.plate) or ''
+    info.plate = plate
+    info.veh_make = data.veh_make or data.vehicle_label or (vehicle and vehicle.vehicle_label)
+    info.veh_color = data.veh_color
+    info.veh_type = data.veh_type
+
+    local callsign = ps.getMetadata and ps.getMetadata(source, 'callsign') or nil
+    if callsign == 'NO CALLSIGN' then callsign = nil end
+    local officerName = data.officer or ps.getPlayerName(source) or 'Unknown Officer'
+    info.officer = officerName
+    info.badge = callsign or data.badge
+    info.agency = data.agency or getOfficerJobName(source)
+
+    local charges = getFineCharges(reportId, citizenId, payload.charges)
+    for i = 1, 3 do
+        local charge = charges[i]
+        if charge then
+            local penalCode = MySQL.single.await([[
+                SELECT code, label, description
+                FROM mdt_penal_codes
+                WHERE label = ? OR code = ?
+                LIMIT 1
+            ]], { charge.charge, charge.code or charge.vi_code })
+
+            info['vi_code_' .. i] = charge.vi_code or charge.code or (penalCode and penalCode.code) or charge.charge
+            info['vi_descrip_' .. i] = charge.vi_descrip or charge.description or (penalCode and (penalCode.description or penalCode.label)) or charge.charge
+        else
+            info['vi_code_' .. i] = data['vi_code_' .. i]
+            info['vi_descrip_' .. i] = data['vi_descrip_' .. i] or data['vi_description_' .. i]
+        end
+    end
+
+    info.officersig = data.officersig
+    info.comments = data.comments
+    info.fineAmount = data.fineAmount or total or payload.fine
+
+    return info
+end
+
+local function addCitationItem(source, info)
+    if GetResourceState('qb-inventory') == 'started' then
+        local ok, added = pcall(function()
+            return exports['qb-inventory']:AddItem(source, 'citation', 1, false, info)
+        end)
+        if ok and added ~= false then return true end
+    end
+
+    if GetResourceState('ox_inventory') == 'started' then
+        local ok, added = pcall(function()
+            return exports.ox_inventory:AddItem(source, 'citation', 1, info)
+        end)
+        if ok and added ~= false then return true end
+    end
+
+    local ok, QBCore = pcall(function() return exports['qb-core']:GetCoreObject() end)
+    local Player = ok and QBCore and QBCore.Functions.GetPlayer(source) or nil
+    if Player and Player.Functions and Player.Functions.AddItem then
+        return Player.Functions.AddItem('citation', 1, false, info) ~= false
+    end
+
+    return false
+end
+
 SentencingIntegration = SentencingIntegration or {}
 
 function SentencingIntegration.IssueFine(source, payload)
@@ -122,13 +243,21 @@ function SentencingIntegration.IssueFine(source, payload)
     })
 
     if result and result.ok then
+        local citationInfo = getCitationData(source, payload, total)
+        local citationAdded = addCitationItem(source, citationInfo)
+        if not citationAdded and ps and ps.warn then
+            ps.warn(('[Sentencing] Failed to add citation item for source %s, report %s'):format(source, tostring(payload.reportId)))
+        end
+
         return {
             success = true,
             id = result.id,
             invoiceNo = result.invoice_no,
             status = result.status or 'pending',
             amount = total,
-            items = items
+            items = items,
+            citation = citationInfo,
+            citationAdded = citationAdded
         }
     end
 
