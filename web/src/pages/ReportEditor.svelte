@@ -507,6 +507,12 @@
 		try {
 			const charges = report.charges.filter((charge) => charge.citizenid === citizenid);
 			const result = await reportService.giveCitation(citizenid, fine, report.reportId, charges);
+			if (result.sentencingAction) {
+				report.sentencingActions = [
+					...report.sentencingActions.filter((action) => !(action.citizenid === citizenid && action.action === "fine")),
+					result.sentencingAction,
+				];
+			}
 			showStatus(result.message || `Citation issued: $${fine.toLocaleString()}`);
 		} catch {
 			showStatus("Failed to issue citation", "error");
@@ -1004,6 +1010,7 @@
 				suspects={report.involved.suspects}
 				{penalCodes}
 				{reductionOffers}
+				sentencingActions={report.sentencingActions}
 				onAddCharge={handlers.handleAddCharge}
 				onRemoveCharge={handlers.handleRemoveCharge}
 				onUpdateCharge={handlers.handleUpdateCharge}

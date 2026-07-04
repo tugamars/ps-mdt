@@ -189,5 +189,17 @@ ps.registerCallback(resourceName .. ':server:giveCitation', function(source, pay
         })
     end
 
-    return { success = true, message = '$' .. (invoice.amount or fine) .. ' fine invoice issued' }
+    return {
+        success = true,
+        message = '$' .. (invoice.amount or fine) .. ' fine invoice issued',
+        sentencingAction = {
+            citizenid = citizenId,
+            action = 'fine',
+            amount = invoice.amount or fine,
+            status = invoice.status or 'pending',
+            externalId = invoice.id and tostring(invoice.id) or nil,
+            externalReference = invoice.invoiceNo,
+            paidAt = nil
+        }
+    }
 end)

@@ -1,11 +1,12 @@
 <script lang="ts">
-	import type { ReportCharge, Suspect } from "../../interfaces/IReportEditor";
+	import type { ReportCharge, SentencingAction, Suspect } from "../../interfaces/IReportEditor";
 	import type { Charge } from "../../interfaces/ICharges";
 
 	interface Props {
 		charges: ReportCharge[];
 		suspects: Suspect[];
 		penalCodes: Charge[];
+		sentencingActions?: SentencingAction[];
 		reductionOffers?: number[];
 		onAddCharge: (charge: ReportCharge) => void;
 		onRemoveCharge: (id: string) => void;
@@ -18,6 +19,7 @@
 		charges,
 		suspects,
 		penalCodes,
+		sentencingActions = [],
 		reductionOffers = [],
 		onAddCharge,
 		onRemoveCharge,
@@ -71,6 +73,22 @@
 
 	function getSuspectTotalMonths(citizenid: string): number {
 		return charges.filter((c) => c.citizenid === citizenid).reduce((sum, c) => sum + c.time * c.count, 0);
+	}
+
+	function getFineAction(citizenid: string): SentencingAction | undefined {
+		return sentencingActions.find((action) => action.citizenid === citizenid && action.action === "fine");
+	}
+
+	function isPaid(action: SentencingAction | undefined): boolean {
+		const status = (action?.status || "").toLowerCase();
+		return Boolean(action?.paidAt) || status === "paid" || status === "completed";
+	}
+
+	function getFineStatusLabel(action: SentencingAction | undefined): string {
+		if (!action) return "Fine not issued";
+		if (isPaid(action)) return "Invoice paid";
+		const status = action.status ? action.status.charAt(0).toUpperCase() + action.status.slice(1) : "Pending";
+		return `Invoice ${status}`;
 	}
 
 	function getReducedFine(citizenid: string, percent: number): number {
@@ -195,6 +213,7 @@
 		<p class="empty-text">No charges added.</p>
 	{:else}
 		{#each [...chargesBySuspect.entries()] as [citizenid, suspectCharges]}
+			{@const fineAction = getFineAction(citizenid)}
 			<div class="suspect-group">
 				<div class="suspect-header">
 					<span class="suspect-name">{getSuspectName(citizenid)}</span>
@@ -226,6 +245,14 @@
 					<div class="suspect-totals">
 						<span class="total-item">{getSuspectTotalMonths(citizenid)} months</span>
 						<span class="total-item">${getSuspectTotalFine(citizenid).toLocaleString()}</span>
+						<span
+							class="invoice-status"
+							class:paid={isPaid(fineAction)}
+							class:pending={fineAction && !isPaid(fineAction)}
+							title={fineAction?.externalReference ? `Invoice ${fineAction.externalReference}` : undefined}
+						>
+							{getFineStatusLabel(fineAction)}
+						</span>
 					</div>
 					<div class="suspect-actions">
 						<button
@@ -238,7 +265,7 @@
 						<button
 							class="action-btn fine-btn"
 							onclick={() => onGiveCitation(citizenid, getSuspectTotalFine(citizenid))}
-							disabled={!citizenid || getSuspectTotalFine(citizenid) <= 0}
+							disabled={!citizenid || getSuspectTotalFine(citizenid) <= 0 || Boolean(fineAction)}
 						>
 							Issue Fine
 						</button>
@@ -305,14 +332,14 @@
 								<button
 									class="action-btn fine-btn"
 									onclick={applyReductionFine}
-									disabled={getSuspectTotalFine(citizenid) <= 0}
+									disabled={getSuspectTotalFine(citizenid) <= 0 || Boolean(fineAction)}
 								>
 									Fine (${getReducedFine(citizenid, selectedReduction).toLocaleString()})
 								</button>
 								<button
 									class="action-btn both-btn"
 									onclick={applyReductionBoth}
-									disabled={getSuspectTotalMonths(citizenid) <= 0 && getSuspectTotalFine(citizenid) <= 0}
+									disabled={(getSuspectTotalMonths(citizenid) <= 0 && getSuspectTotalFine(citizenid) <= 0) || Boolean(fineAction)}
 								>
 									Jail & Fine
 								</button>
@@ -681,6 +708,8 @@
 
 	.suspect-totals {
 		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
 		gap: 12px;
 	}
 
@@ -688,6 +717,30 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: rgba(255, 255, 255, 0.6);
+	}
+
+	.invoice-status {
+		font-size: 9px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		color: rgba(255, 255, 255, 0.35);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 3px;
+		padding: 2px 5px;
+		white-space: nowrap;
+	}
+
+	.invoice-status.pending {
+		color: #fbbf24;
+		background: rgba(245, 158, 11, 0.1);
+		border-color: rgba(245, 158, 11, 0.22);
+	}
+
+	.invoice-status.paid {
+		color: #34d399;
+		background: rgba(16, 185, 129, 0.1);
+		border-color: rgba(16, 185, 129, 0.22);
 	}
 
 	.suspect-actions {
