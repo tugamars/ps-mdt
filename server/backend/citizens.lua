@@ -791,6 +791,10 @@ ps.registerCallback(resourceName .. ':server:getCitizenProfile', function(source
                 return result
             end)(),
             notes = notes,
+            jail = {
+                injail = metadata and (metadata.injail and metadata.lockeduntil > os.time() ) or false,
+                jailtime = (metadata and metadata.lockeduntil and  os.date("%Y-%m-%d %H:%M:%S", metadata.lockeduntil)) or "N/A",
+            }
         }
     }
 end)

@@ -18,10 +18,78 @@ local function trim(value)
     return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
 end
 
+local function valueOrNil(value)
+    if value == nil then return nil end
+    local trimmed = trim(value)
+    if trimmed == '' or trimmed == 'Unknown' or trimmed == 'Unknown Officer' or trimmed == 'NO CALLSIGN' then
+        return nil
+    end
+    return value
+end
+
+local function valueOrEmpty(value)
+    return valueOrNil(value) or ''
+end
+
+local function setString(info, key, value)
+    info[key] = valueOrEmpty(value)
+end
+
 local function splitName(fullName)
     fullName = trim(fullName)
     local firstname, surname = fullName:match('^(%S+)%s+(.+)$')
     return firstname or fullName, surname or ''
+end
+
+local function getOfficerFullName(source)
+    return valueOrNil(ps.getPlayerName(source) or GetPlayerName(source))
+end
+
+local function getOfficerDepartmentName(source)
+    local jobData = ps.getJobData and ps.getJobData(source) or nil
+    if jobData then
+        local label = jobData.label or jobData.fullName or jobData.department
+        if valueOrNil(label) then return label end
+    end
+
+    local job = ps.getJob(source)
+    if job then
+        local label = job.label or job.fullName or job.department
+        if valueOrNil(label) then return label end
+    end
+
+    local jobName = getOfficerJobName(source)
+    local sharedJob = ps.getSharedJob and ps.getSharedJob(jobName) or nil
+    if sharedJob and valueOrNil(sharedJob.label) then
+        return sharedJob.label
+    end
+
+    if jobName then
+        local ok, row = pcall(function()
+            return MySQL.single.await('SELECT * FROM bs_businesses WHERE name = ? OR id = ? LIMIT 1', { jobName, jobName })
+        end)
+        if ok and row and valueOrNil(row.label) then return row.label end
+        if ok and row and valueOrNil(row.name) then return row.name end
+    end
+
+    return nil
+end
+
+local function getOfficerStreetName(source)
+    if not GetPlayerPed or not GetEntityCoords or not GetStreetNameAtCoord or not GetStreetNameFromHashKey then
+        return nil
+    end
+
+    local ped = GetPlayerPed(source)
+    if not ped or ped == 0 then return nil end
+
+    local coords = GetEntityCoords(ped)
+    if not coords then return nil end
+
+    local streetHash = GetStreetNameAtCoord(coords.x, coords.y, coords.z)
+    if not streetHash or streetHash == 0 then return nil end
+
+    return valueOrNil(GetStreetNameFromHashKey(streetHash))
 end
 
 local function buildFineInvoiceItems(reportId, citizenId, payloadCharges, fallbackFine)
@@ -136,13 +204,14 @@ local function getCitationData(source, payload, total)
     local reportId = payload.reportId
     local citizenId = payload.citizenId
 
-    local citizenName = data.fullname or data.name or ps.getPlayerNameByIdentifier(citizenId)
+    local citizenName = valueOrNil(data.fullname or data.name or ps.getPlayerNameByIdentifier(citizenId))
     local firstname, surname = splitName(citizenName)
-    info.firstname = data.firstname or firstname
-    info.surname = data.surname or data.lastname or surname
-    info.date = data.date or os.date('%Y-%m-%d')
-    info.postal = data.postal
-    info.street = data.street
+    setString(info, 'firstname', data.firstname or firstname)
+    setString(info, 'surname', data.surname or data.lastname or surname)
+    setString(info, 'citationId', reportId)
+    setString(info, 'date', data.date or os.date('%Y-%m-%d'))
+    setString(info, 'postal', data.postal)
+    setString(info, 'street', getOfficerStreetName(source))
 
     local vehicle = nil
     if reportId then
@@ -155,18 +224,18 @@ local function getCitationData(source, payload, total)
         ]], { reportId })
     end
 
-    local plate = data.plate or payload.plate or (vehicle and vehicle.plate) or ''
-    info.plate = plate
-    info.veh_make = data.veh_make or data.vehicle_label or (vehicle and vehicle.vehicle_label)
-    info.veh_color = data.veh_color
-    info.veh_type = data.veh_type
+    local plate = data.plate or payload.plate or (vehicle and vehicle.plate)
+    setString(info, 'plate', plate)
+    setString(info, 'veh_make', data.veh_make or data.vehicle_label or (vehicle and vehicle.vehicle_label))
+    setString(info, 'veh_color', data.veh_color)
+    setString(info, 'veh_type', data.veh_type)
 
     local callsign = ps.getMetadata and ps.getMetadata(source, 'callsign') or nil
-    if callsign == 'NO CALLSIGN' then callsign = nil end
-    local officerName = data.officer or ps.getPlayerName(source) or 'Unknown Officer'
-    info.officer = officerName
-    info.badge = callsign or data.badge
-    info.agency = data.agency or getOfficerJobName(source)
+    callsign = valueOrNil(callsign or data.badge)
+    local officerName = valueOrNil(data.officer or getOfficerFullName(source))
+    setString(info, 'officer', officerName)
+    info.badge = callsign or ''
+    setString(info, 'agency', data.agency or getOfficerDepartmentName(source))
 
     local charges = getFineCharges(reportId, citizenId, payload.charges)
     for i = 1, 3 do
@@ -179,17 +248,18 @@ local function getCitationData(source, payload, total)
                 LIMIT 1
             ]], { charge.charge, charge.code or charge.vi_code })
 
-            info['vi_code_' .. i] = charge.vi_code or charge.code or (penalCode and penalCode.code) or charge.charge
-            info['vi_descrip_' .. i] = charge.vi_descrip or charge.description or (penalCode and (penalCode.description or penalCode.label)) or charge.charge
+            setString(info, 'vi_code_' .. i, charge.vi_code or charge.code or (penalCode and penalCode.code) or charge.charge)
+            setString(info, 'vi_descrip_' .. i, charge.vi_descrip or charge.label or (penalCode and penalCode.label) or charge.charge)
         else
-            info['vi_code_' .. i] = data['vi_code_' .. i]
-            info['vi_descrip_' .. i] = data['vi_descrip_' .. i] or data['vi_description_' .. i]
+            setString(info, 'vi_code_' .. i, data['vi_code_' .. i])
+            setString(info, 'vi_descrip_' .. i, data['vi_descrip_' .. i] or data['vi_description_' .. i])
         end
     end
 
-    info.officersig = data.officersig
-    info.comments = data.comments
-    info.fineAmount = data.fineAmount or total or payload.fine
+    setString(info, 'officersig', data.officersig)
+    setString(info, 'offendersig', data.offendersig)
+    setString(info, 'comments', data.comments)
+    info.fineAmount = data.fineAmount or total or payload.fine or ''
 
     return info
 end
@@ -268,6 +338,9 @@ function SentencingIntegration.IssueFine(source, payload)
 end
 
 function SentencingIntegration.SendToJail(source, payload)
+
+    TriggerEvent("tgm:sna:framework:server:sendToJail", source, payload.sentence);
+
     return {
         success = true
     }

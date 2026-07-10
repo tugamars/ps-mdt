@@ -503,8 +503,37 @@
 		}
 	}
 
+	async function autoSaveReportForSentencing(): Promise<boolean> {
+		if (!report.tags || report.tags.length === 0) {
+			showStatus("At least one tag is required before issuing a fine", "error");
+			return false;
+		}
+
+		try {
+			isSaving = true;
+			isPersistenceEnabled = false;
+			persistence.cancelDebouncedSave();
+
+			await reportService.saveReport(report);
+
+			persistence.clearPersistedData();
+			persistence.forceRemoveData();
+			isPersistenceEnabled = true;
+			return true;
+		} catch (error: any) {
+			showStatus(error?.message || "Failed to save report before issuing fine", "error");
+			isPersistenceEnabled = true;
+			return false;
+		} finally {
+			isSaving = false;
+		}
+	}
+
 	async function handleGiveCitation(citizenid: string, fine: number) {
 		try {
+			const saved = await autoSaveReportForSentencing();
+			if (!saved) return;
+
 			const charges = report.charges.filter((charge) => charge.citizenid === citizenid);
 			const result = await reportService.giveCitation(citizenid, fine, report.reportId, charges);
 			if (result.sentencingAction) {

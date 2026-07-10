@@ -72,24 +72,19 @@ ps.registerCallback(resourceName .. ':server:sendToJail', function(source, paylo
         return { success = false, message = 'Could not resolve player source' }
     end
 
-    local OtherPlayer = QBCore and QBCore.Functions.GetPlayer(targetSource)
-    if not OtherPlayer then
-        return { success = false, message = 'Could not find target player' }
-    end
-
     local currentDate = os.date('*t')
     if currentDate.day == 31 then
         currentDate.day = 30
     end
 
-    OtherPlayer.Functions.SetMetaData('injail', sentence)
-    OtherPlayer.Functions.SetMetaData('criminalrecord', {
+    --OtherPlayer.Functions.SetMetaData('injail', sentence)
+    ps.setPlayerMetadata(ps.cid, 'criminalrecord', {
         ['hasRecord'] = true,
         ['date'] = currentDate
     })
     TriggerClientEvent('police:client:SendToJail', targetSource, sentence)
 
-    local integrationResult = SentencingIntegration and SentencingIntegration.SendToJail and SentencingIntegration.SendToJail(src, {
+    local integrationResult = SentencingIntegration and SentencingIntegration.SendToJail and SentencingIntegration.SendToJail(targetSource, {
         citizenId = citizenId,
         sentence = sentence,
         reportId = reportId,
