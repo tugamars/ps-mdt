@@ -8,6 +8,23 @@ local function isDojJob(jobName)
     return false
 end
 
+local function appendAcePermissions(source, permissions)
+    local acePermission = (Config and Config.AuditLogAcePermission) or 'ps-mdt.audit'
+    if acePermission ~= false and IsPlayerAceAllowed(source, acePermission) then
+        local hasActivity = false
+        for _, permission in ipairs(permissions or {}) do
+            if permission == 'management_activity' then
+                hasActivity = true
+                break
+            end
+        end
+        if not hasActivity then
+            permissions[#permissions + 1] = 'management_activity'
+        end
+    end
+    return permissions
+end
+
 function CheckAuth(source, silent)
     ps.debug('Checking MDT Authorization')
     local jobType = ps.getJobType(source)
@@ -237,7 +254,7 @@ ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermission
     -- Boss gets all permissions
     if isBoss or (ps.isBoss and ps.isBoss(src)) then
         local allPerms = (Config and Config.ManagementPermissions) or {}
-        return { permissions = allPerms, isBoss = true }
+        return { permissions = appendAcePermissions(src, allPerms), isBoss = true }
     end
 
     local gradeStr = tostring(gradeValue)
@@ -247,16 +264,16 @@ ps.registerCallback(tostring(GetCurrentResourceName())..':server:getMyPermission
     if row and row.permissions then
         local ok, decoded = pcall(json.decode, row.permissions)
         if ok and type(decoded) == 'table' then
-            return { permissions = decoded, isBoss = false }
+            return { permissions = appendAcePermissions(src, decoded), isBoss = false }
         end
     end
 
     -- Check config defaults
     local defaults = Config and Config.PermissionDefaults and Config.PermissionDefaults[jobName]
     if defaults and defaults[gradeStr] then
-        return { permissions = defaults[gradeStr], isBoss = false }
+        return { permissions = appendAcePermissions(src, defaults[gradeStr]), isBoss = false }
     end
 
     -- No permissions found for this grade
-    return { permissions = {}, isBoss = false }
+    return { permissions = appendAcePermissions(src, {}), isBoss = false }
 end)
