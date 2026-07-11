@@ -7,8 +7,10 @@
 		collapsed: boolean;
 		onToggle: () => void;
 		onUpdate: (charge: Charge, payload: Partial<Charge>) => Promise<boolean>;
+		onDelete?: (charge: Charge) => Promise<boolean>;
 		colorClass?: string;
 		isEditing?: boolean;
+		canDelete?: boolean;
 	}
 
 	let {
@@ -17,8 +19,10 @@
 		collapsed,
 		onToggle,
 		onUpdate,
+		onDelete,
 		colorClass = "",
 		isEditing = false,
+		canDelete = false,
 	}: Props = $props();
 
 	// Track which row is being edited (by code)
@@ -68,6 +72,14 @@
 		if (success) {
 			editingCode = null;
 		}
+		isSaving = false;
+	}
+
+	async function deleteCharge(charge: Charge) {
+		if (isSaving || !onDelete) return;
+		if (!window.confirm(`Delete ${charge.code || charge.label}?`)) return;
+		isSaving = true;
+		await onDelete(charge);
 		isSaving = false;
 	}
 
@@ -138,13 +150,13 @@
 		{#each Object.entries(groupedCharges) as [category, chargeList]}
 			<div class="category-group">
 				<div class="category-label">{category}</div>
-				<div class="table-header">
+				<div class="table-header" class:with-actions={isEditing || canDelete}>
 					<span class="col-code">Code</span>
 					<span class="col-label">Charge</span>
 					<span class="col-desc">Description</span>
 					<span class="col-fine">Fine</span>
 					<span class="col-time">Time</span>
-					{#if isEditing}
+					{#if isEditing || canDelete}
 						<span class="col-actions"></span>
 					{/if}
 				</div>
@@ -210,6 +222,7 @@
 						<div
 							class="charge-row"
 							class:clickable={isEditing}
+							class:with-actions={isEditing || canDelete}
 							onclick={() => isEditing && startEdit(charge)}
 						>
 							<span class="col-code">
@@ -223,9 +236,24 @@
 							<span class="col-desc">{charge.description}</span>
 							<span class="col-fine">{formatFine(getFineValue(charge))}</span>
 							<span class="col-time">{formatTime(getTimeValue(charge))}</span>
-							{#if isEditing}
+							{#if isEditing || canDelete}
 								<span class="col-actions">
-									<span class="material-icons edit-hint-icon">edit</span>
+									{#if isEditing}
+										<span class="material-icons edit-hint-icon">edit</span>
+									{/if}
+									{#if canDelete}
+										<button
+											class="btn-delete"
+											onclick={(event) => {
+												event.stopPropagation();
+												deleteCharge(charge);
+											}}
+											disabled={isSaving}
+											title="Delete charge"
+										>
+											<span class="material-icons">delete</span>
+										</button>
+									{/if}
 								</span>
 							{/if}
 						</div>
@@ -339,6 +367,10 @@
 		border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 	}
 
+	.table-header.with-actions {
+		grid-template-columns: 80px 1.2fr 2fr 80px 60px 54px;
+	}
+
 	.charge-row {
 		display: grid;
 		grid-template-columns: 80px 1.2fr 2fr 80px 60px;
@@ -348,6 +380,10 @@
 		border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 		align-items: center;
 		transition: background 0.1s;
+	}
+
+	.charge-row.with-actions {
+		grid-template-columns: 80px 1.2fr 2fr 80px 60px 54px;
 	}
 
 	.charge-row:hover {
@@ -506,5 +542,31 @@
 	.btn-cancel:disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+
+	.btn-delete {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		background: rgba(239, 68, 68, 0.06);
+		border: 1px solid rgba(239, 68, 68, 0.12);
+		border-radius: 3px;
+		color: rgba(252, 165, 165, 0.72);
+		cursor: pointer;
+	}
+
+	.btn-delete:hover:not(:disabled) {
+		background: rgba(239, 68, 68, 0.12);
+	}
+
+	.btn-delete:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.btn-delete .material-icons {
+		font-size: 13px;
 	}
 </style>

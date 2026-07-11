@@ -35,3 +35,33 @@ RegisterNUICallback('updateCharge', function(data, cb)
     local result = ps.callback(resourceName .. ':server:updateCharge', data)
     cb(result or { success = false, message = 'Failed to update charge' })
 end)
+
+RegisterNUICallback('addCharge', function(data, cb)
+    if not MDTOpen then
+        cb({ success = false, message = 'MDT is not open' })
+        return
+    end
+
+    if type(data) ~= 'table' or not data.code or not data.label then
+        cb({ success = false, message = 'Missing charge code or label' })
+        return
+    end
+
+    local result = ps.callback(resourceName .. ':server:addCharge', data)
+    cb(result or { success = false, message = 'Failed to add charge' })
+end)
+
+RegisterNUICallback('deleteCharge', function(data, cb)
+    if not MDTOpen then
+        cb({ success = false, message = 'MDT is not open' })
+        return
+    end
+
+    if type(data) ~= 'table' or not data.code then
+        cb({ success = false, message = 'Missing charge code' })
+        return
+    end
+
+    local result = ps.callback(resourceName .. ':server:deleteCharge', data)
+    cb(result or { success = false, message = 'Failed to delete charge' })
+end)

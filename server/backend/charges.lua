@@ -140,3 +140,75 @@ ps.registerCallback(resourceName .. ':server:updateCharge', function(source, pay
     end
     return { success = penalUpdated and penalUpdated > 0 }
 end)
+
+ps.registerCallback(resourceName .. ':server:addCharge', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not CheckPermission(src, 'charges_manage') then
+        return { success = false, message = 'You do not have permission to manage charges' }
+    end
+
+    payload = payload or {}
+    local code = payload.code and tostring(payload.code):gsub('^%s*(.-)%s*$', '%1') or ''
+    local label = payload.label and tostring(payload.label):gsub('^%s*(.-)%s*$', '%1') or ''
+    local chargeClass = payload.type and tostring(payload.type):lower() or 'infraction'
+    local description = payload.description and tostring(payload.description) or ''
+    local months = math.max(0, tonumber(payload.time) or 0)
+    local fine = math.max(0, tonumber(payload.fine) or 0)
+
+    if code == '' or label == '' then
+        return { success = false, message = 'Missing charge code or label' }
+    end
+    if chargeClass ~= 'felony' and chargeClass ~= 'misdemeanor' and chargeClass ~= 'infraction' then
+        return { success = false, message = 'Invalid charge type' }
+    end
+
+    local exists = MySQL.single.await('SELECT code FROM mdt_penal_codes WHERE code = ?', { code })
+    if exists then
+        return { success = false, message = 'A charge with that code already exists' }
+    end
+
+    local inserted = MySQL.insert.await([[
+        INSERT INTO mdt_penal_codes (code, label, charge_class, description, months, fine)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ]], { code, label, chargeClass, description, months, fine })
+
+    if inserted and ps.auditLog then
+        ps.auditLog(src, 'charge_created', 'charge', code, {
+            label = label,
+            type = chargeClass,
+            fine = fine,
+            time = months,
+        })
+    end
+
+    return { success = inserted ~= nil, charge = {
+        code = code,
+        label = label,
+        type = chargeClass,
+        description = description,
+        time = months,
+        fine = fine,
+    } }
+end)
+
+ps.registerCallback(resourceName .. ':server:deleteCharge', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    if not CheckPermission(src, 'charges_manage') then
+        return { success = false, message = 'You do not have permission to manage charges' }
+    end
+
+    payload = payload or {}
+    local code = payload.code and tostring(payload.code) or ''
+    if code == '' then
+        return { success = false, message = 'Missing charge code' }
+    end
+
+    local deleted = MySQL.update.await('DELETE FROM mdt_penal_codes WHERE code = ?', { code })
+    if deleted and deleted > 0 and ps.auditLog then
+        ps.auditLog(src, 'charge_deleted', 'charge', code, {})
+    end
+
+    return { success = deleted and deleted > 0 }
+end)
