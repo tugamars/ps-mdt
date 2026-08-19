@@ -18,8 +18,20 @@
 	let searchQuery = $state("");
 	let isLoading = $state(false);
 	let isEditing = $state(false);
+	let showAddForm = $state(false);
+	let addError = $state("");
+	let newCharge = $state<Charge>({
+		code: "",
+		label: "",
+		description: "",
+		time: 0,
+		fine: 0,
+		type: "infraction",
+		category: "Uncategorized",
+	});
 
 	let canEdit = $derived(authService?.hasPermission("charges_edit") ?? false);
+	let canManage = $derived(authService?.hasPermission("charges_manage") ?? false);
 
 	const collapsedState = $state({
 		felony: false,
@@ -103,6 +115,8 @@
 		const fineValue = Number(source.fine ?? 0);
 		return {
 			...source,
+			description: source.description || "",
+			category: source.category || "Uncategorized",
 			time: Number.isFinite(timeValue) ? timeValue : 0,
 			fine: Number.isFinite(fineValue) ? fineValue : 0,
 		};
@@ -144,6 +158,65 @@
 			return false;
 		} catch (error) {
 			debugError("Failed to update charge:", error);
+			return false;
+		}
+	}
+
+	async function addCharge() {
+		addError = "";
+		const code = newCharge.code?.trim();
+		const label = newCharge.label.trim();
+		if (!code || !label) {
+			addError = "Code and charge name are required.";
+			return;
+		}
+
+		try {
+			const result = await fetchNui<{ success?: boolean; message?: string; charge?: Charge }>(
+				NUI_EVENTS.CHARGE.ADD_CHARGE,
+				{
+					...newCharge,
+					code,
+					label,
+					fine: Number(newCharge.fine) || 0,
+					time: Number(newCharge.time) || 0,
+				},
+			);
+			if (result?.success) {
+				const created = normalizeCharge(result.charge || newCharge);
+				charges = [...charges, created];
+				newCharge = {
+					code: "",
+					label: "",
+					description: "",
+					time: 0,
+					fine: 0,
+					type: "infraction",
+					category: "Uncategorized",
+				};
+				showAddForm = false;
+				return;
+			}
+			addError = result?.message || "Failed to add charge.";
+		} catch (error) {
+			debugError("Failed to add charge:", error);
+			addError = "Failed to add charge.";
+		}
+	}
+
+	async function deleteCharge(charge: Charge) {
+		try {
+			const result = await fetchNui<{ success?: boolean; message?: string }>(
+				NUI_EVENTS.CHARGE.DELETE_CHARGE,
+				{ code: charge.code },
+			);
+			if (result?.success) {
+				charges = charges.filter((item) => item.code !== charge.code);
+				return true;
+			}
+			return false;
+		} catch (error) {
+			debugError("Failed to delete charge:", error);
 			return false;
 		}
 	}
@@ -204,10 +277,38 @@
 					{isEditing ? "Done" : "Edit Charges"}
 				</button>
 			{/if}
+			{#if canManage}
+				<button
+					class="btn-edit"
+					class:active={showAddForm}
+					onclick={() => (showAddForm = !showAddForm)}
+				>
+					<span class="material-icons btn-edit-icon">add</span>
+					Add Charge
+				</button>
+			{/if}
 		</div>
 	</div>
 
 	<div class="charges-content">
+		{#if showAddForm}
+			<div class="add-panel">
+				<input type="text" placeholder="Code" bind:value={newCharge.code} />
+				<input type="text" placeholder="Charge name" bind:value={newCharge.label} />
+				<select bind:value={newCharge.type}>
+					<option value="infraction">Infraction</option>
+					<option value="misdemeanor">Misdemeanor</option>
+					<option value="felony">Felony</option>
+				</select>
+				<input type="number" min="0" placeholder="Fine" bind:value={newCharge.fine} />
+				<input type="number" min="0" placeholder="Months" bind:value={newCharge.time} />
+				<input type="text" placeholder="Description" bind:value={newCharge.description} />
+				<button class="btn-save-add" onclick={addCharge}>Save</button>
+				{#if addError}
+					<span class="add-error">{addError}</span>
+				{/if}
+			</div>
+		{/if}
 		{#if isLoading && charges.length === 0}
 			<div class="empty-state">
 				<div class="loading-spinner"></div>
@@ -231,7 +332,9 @@
 					onToggle={() => toggleCollapse("felony")}
 					colorClass="felony"
 					onUpdate={saveChargeUpdate}
+					onDelete={deleteCharge}
 					{isEditing}
+					canDelete={canManage}
 				/>
 			{/if}
 
@@ -243,7 +346,9 @@
 					onToggle={() => toggleCollapse("misdemeanor")}
 					colorClass="misdemeanor"
 					onUpdate={saveChargeUpdate}
+					onDelete={deleteCharge}
 					{isEditing}
+					canDelete={canManage}
 				/>
 			{/if}
 
@@ -255,7 +360,9 @@
 					onToggle={() => toggleCollapse("infraction")}
 					colorClass="infraction"
 					onUpdate={saveChargeUpdate}
+					onDelete={deleteCharge}
 					{isEditing}
+					canDelete={canManage}
 				/>
 			{/if}
 		{/if}
@@ -368,6 +475,48 @@
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
+	}
+
+	.add-panel {
+		display: grid;
+		grid-template-columns: 90px 1.2fr 130px 90px 90px 2fr auto;
+		gap: 8px;
+		align-items: center;
+		padding: 10px 16px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+		background: rgba(var(--accent-rgb), 0.03);
+	}
+
+	.add-panel input,
+	.add-panel select {
+		min-width: 0;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 3px;
+		padding: 5px 7px;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 11px;
+	}
+
+	.add-panel select {
+		color-scheme: dark;
+	}
+
+	.btn-save-add {
+		background: rgba(16, 185, 129, 0.08);
+		border: 1px solid rgba(16, 185, 129, 0.15);
+		border-radius: 3px;
+		padding: 5px 10px;
+		color: rgba(110, 231, 183, 0.8);
+		font-size: 10px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.add-error {
+		grid-column: 1 / -1;
+		color: rgba(252, 165, 165, 0.8);
+		font-size: 10px;
 	}
 
 	.charges-content::-webkit-scrollbar {

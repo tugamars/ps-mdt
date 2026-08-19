@@ -496,16 +496,52 @@
 
 	async function handleSendToJail(citizenid: string, months: number) {
 		try {
-			const result = await reportService.sendToJail(citizenid, months);
+			const result = await reportService.sendToJail(citizenid, months, report.reportId);
 			showStatus(result.message || `Sent to jail for ${months} months`);
 		} catch {
 			showStatus("Failed to send to jail", "error");
 		}
 	}
 
+	async function autoSaveReportForSentencing(): Promise<boolean> {
+		if (!report.tags || report.tags.length === 0) {
+			showStatus("At least one tag is required before issuing a fine", "error");
+			return false;
+		}
+
+		try {
+			isSaving = true;
+			isPersistenceEnabled = false;
+			persistence.cancelDebouncedSave();
+
+			await reportService.saveReport(report);
+
+			persistence.clearPersistedData();
+			persistence.forceRemoveData();
+			isPersistenceEnabled = true;
+			return true;
+		} catch (error: any) {
+			showStatus(error?.message || "Failed to save report before issuing fine", "error");
+			isPersistenceEnabled = true;
+			return false;
+		} finally {
+			isSaving = false;
+		}
+	}
+
 	async function handleGiveCitation(citizenid: string, fine: number) {
 		try {
-			const result = await reportService.giveCitation(citizenid, fine, report.reportId);
+			const saved = await autoSaveReportForSentencing();
+			if (!saved) return;
+
+			const charges = report.charges.filter((charge) => charge.citizenid === citizenid);
+			const result = await reportService.giveCitation(citizenid, fine, report.reportId, charges);
+			if (result.sentencingAction) {
+				report.sentencingActions = [
+					...report.sentencingActions.filter((action) => !(action.citizenid === citizenid && action.action === "fine")),
+					result.sentencingAction,
+				];
+			}
 			showStatus(result.message || `Citation issued: $${fine.toLocaleString()}`);
 		} catch {
 			showStatus("Failed to issue citation", "error");
@@ -1003,6 +1039,7 @@
 				suspects={report.involved.suspects}
 				{penalCodes}
 				{reductionOffers}
+				sentencingActions={report.sentencingActions}
 				onAddCharge={handlers.handleAddCharge}
 				onRemoveCharge={handlers.handleRemoveCharge}
 				onUpdateCharge={handlers.handleUpdateCharge}

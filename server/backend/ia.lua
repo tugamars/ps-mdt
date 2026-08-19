@@ -19,7 +19,7 @@ ps.registerCallback(resourceName .. ':server:submitComplaint', function(source, 
         SELECT %s AS firstname, %s AS lastname
         FROM %s WHERE %s = ?
     ]]):format(
-        TableMap.Players.fields.firstname, TableMap.Players.fields.lastname,
+        TableMap.Players.rawFields.firstname, TableMap.Players.rawFields.lastname,
         TableMap.Players.table, TableMap.Players.joinKey
     ), { citizenid })
 

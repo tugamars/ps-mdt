@@ -59,6 +59,10 @@ ps.auditLog = writeAuditLog
 ps.registerCallback(resourceName .. ':server:getAuditLogs', function(source, params)
     local src = source
     if not CheckAuth(src) then return { items = {}, total = 0 } end
+    local acePermission = (Config and Config.AuditLogAcePermission) or 'ps-mdt.audit'
+    if acePermission ~= false and not IsPlayerAceAllowed(src, acePermission) then
+        return { items = {}, total = 0, error = 'missing_ace_permission' }
+    end
 
     params = params or {}
     local entityType = params.entityType

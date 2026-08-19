@@ -108,7 +108,7 @@ ps.registerCallback(resourceName .. ':server:getCases', function(source, page, f
                mp.callsign AS primary_officer_callsign
         FROM mdt_cases mc
         LEFT JOIN mdt_case_officers mco ON mco.case_id = mc.id AND mco.role = 'primary'
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = mco.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN mdt_profiles mp ON mp.citizenid = mco.citizenid
         %s
         ORDER BY mc.updated_at DESC
         LIMIT ? OFFSET ?
@@ -138,7 +138,7 @@ ps.registerCallback(resourceName .. ':server:getCase', function(source, caseId)
         SELECT mco.citizenid, mco.role, mco.assigned_by, mco.assigned_at,
                mp.fullname, mp.callsign, mp.badge_number, mp.rank, mp.department
         FROM mdt_case_officers mco
-        LEFT JOIN mdt_profiles mp ON mp.citizenid COLLATE utf8mb4_general_ci = mco.citizenid COLLATE utf8mb4_general_ci
+        LEFT JOIN mdt_profiles mp ON mp.citizenid = mco.citizenid
         WHERE mco.case_id = ?
         ORDER BY mco.assigned_at ASC
     ]], { caseId })
@@ -233,7 +233,7 @@ ps.registerCallback(resourceName .. ':server:getCaseEvidencePage', function(sour
     local total = totalRow and totalRow.total or 0
 
     local evidence = MySQL.query.await([[
-        SELECT id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by, created_at, updated_at
+        SELECT id, title, type, serial, notes, location, stash_id, `stored`, last_holder, created_by, created_at, updated_at
         FROM mdt_evidence_items
         WHERE case_id = ?
         ORDER BY created_at DESC
@@ -549,214 +549,7 @@ ps.registerCallback(resourceName .. ':server:removeCaseAttachment', function(sou
     return { success = true }
 end)
 
-ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, caseId, evidence)
-    local src = source
-    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
-
-    caseId = tonumber(caseId)
-    if not caseId or not evidence or not evidence.title then
-        return { success = false, error = 'Invalid evidence' }
-    end
-
-    local evidenceId = MySQL.insert.await([[
-        INSERT INTO mdt_evidence_items
-        (case_id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], {
-        caseId,
-        evidence.title,
-        evidence.type or 'Evidence',
-        evidence.serial or '',
-        evidence.notes or '',
-        evidence.location or '',
-        evidence.stashId or '',
-        evidence.stored and 1 or 0,
-        ps.getIdentifier(src),
-        ps.getIdentifier(src)
-    })
-
-    if not evidenceId then
-        return { success = false, error = 'Failed to add evidence' }
-    end
-
-    MySQL.insert.await([[
-        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
-        VALUES (?, ?, ?, 'collected', ?)
-    ]], { evidenceId, nil, ps.getIdentifier(src), evidence.notes or '' })
-
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_added', 'evidence', evidenceId, evidence)
-    end
-
-    return { success = true, id = evidenceId }
-end)
-
--- addEvidenceImage handler is in evidence.lua (not duplicated here)
-
-ps.registerCallback(resourceName .. ':server:removeEvidenceImage', function(source, imageId)
-    local src = source
-    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
-
-    imageId = tonumber(imageId)
-    if not imageId then
-        return { success = false, error = 'Invalid image id' }
-    end
-
-    local image = MySQL.single.await('SELECT url, evidence_id FROM mdt_evidence_images WHERE id = ?', { imageId })
-    local success = MySQL.query.await('DELETE FROM mdt_evidence_images WHERE id = ?', { imageId })
-    if not success then
-        return { success = false, error = 'Failed to remove image' }
-    end
-
-    if image and image.url and image.url:find('^/ps%-mdt%-v3/uploads/') then
-        local path = image.url:gsub('^/ps%-mdt%-v3/', '')
-        if path ~= '' then
-            os.remove(path)
-        end
-    end
-
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_image_removed', 'evidence_image', imageId, {
-            evidenceId = image and image.evidence_id or nil
-        })
-    end
-
-    return { success = true }
-end)
-
-ps.registerCallback(resourceName .. ':server:updateEvidenceItem', function(source, evidenceId, evidence)
-    local src = source
-    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
-
-    evidenceId = tonumber(evidenceId)
-    if not evidenceId or not evidence then
-        return { success = false, error = 'Invalid evidence' }
-    end
-
-    local updates = {}
-    local values = {}
-
-    if evidence.title then
-        updates[#updates + 1] = 'title = ?'
-        values[#values + 1] = evidence.title
-    end
-    if evidence.type then
-        updates[#updates + 1] = 'type = ?'
-        values[#values + 1] = evidence.type
-    end
-    if evidence.serial then
-        updates[#updates + 1] = 'serial = ?'
-        values[#values + 1] = evidence.serial
-    end
-    if evidence.notes then
-        updates[#updates + 1] = 'notes = ?'
-        values[#values + 1] = evidence.notes
-    end
-    if evidence.location then
-        updates[#updates + 1] = 'location = ?'
-        values[#values + 1] = evidence.location
-    end
-    if evidence.stashId then
-        updates[#updates + 1] = 'stash_id = ?'
-        values[#values + 1] = evidence.stashId
-    end
-    if evidence.stored ~= nil then
-        updates[#updates + 1] = 'stored = ?'
-        values[#values + 1] = evidence.stored and 1 or 0
-    end
-
-    if #updates == 0 then
-        return { success = false, error = 'No updates provided' }
-    end
-
-    updates[#updates + 1] = 'last_holder = ?'
-    values[#values + 1] = ps.getIdentifier(src)
-
-    values[#values + 1] = evidenceId
-
-    local success = MySQL.update.await(('UPDATE mdt_evidence_items SET %s WHERE id = ?'):format(table.concat(updates, ', ')), values)
-    if not success then
-        return { success = false, error = 'Failed to update evidence' }
-    end
-
-    MySQL.insert.await([[
-        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
-        VALUES (?, ?, ?, 'updated', ?)
-    ]], { evidenceId, nil, ps.getIdentifier(src), evidence.notes or '' })
-
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_updated', 'evidence', evidenceId, evidence)
-    end
-
-    return { success = true }
-end)
-
-ps.registerCallback(resourceName .. ':server:transferEvidenceItem', function(source, evidenceId, toCitizenId, notes)
-    local src = source
-    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
-
-    evidenceId = tonumber(evidenceId)
-    if not evidenceId or not toCitizenId then
-        return { success = false, error = 'Invalid evidence transfer' }
-    end
-
-    local fromCitizenId = ps.getIdentifier(src)
-    MySQL.update.await('UPDATE mdt_evidence_items SET last_holder = ? WHERE id = ?', { toCitizenId, evidenceId })
-
-    MySQL.insert.await([[
-        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
-        VALUES (?, ?, ?, 'transferred', ?)
-    ]], { evidenceId, fromCitizenId, toCitizenId, notes or '' })
-
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_transferred', 'evidence', evidenceId, {
-            to = toCitizenId,
-            notes = notes
-        })
-    end
-
-    return { success = true }
-end)
-
-ps.registerCallback(resourceName .. ':server:deleteEvidenceItem', function(source, evidenceId)
-    local src = source
-    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
-
-    evidenceId = tonumber(evidenceId)
-    if not evidenceId then
-        return { success = false, error = 'Invalid evidence id' }
-    end
-
-    local success = MySQL.query.await('DELETE FROM mdt_evidence_items WHERE id = ?', { evidenceId })
-    if not success then
-        return { success = false, error = 'Failed to delete evidence' }
-    end
-
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_deleted', 'evidence', evidenceId, {})
-    end
-
-    return { success = true }
-end)
-
-ps.registerCallback(resourceName .. ':server:getEvidenceCustody', function(source, evidenceId)
-    local src = source
-    if not CheckAuth(src) then return {} end
-
-    evidenceId = tonumber(evidenceId)
-    if not evidenceId then
-        return {}
-    end
-
-    local rows = MySQL.query.await([[
-        SELECT id, evidence_id, from_citizenid, to_citizenid, action, notes, created_at
-        FROM mdt_evidence_custody
-        WHERE evidence_id = ?
-        ORDER BY id DESC
-    ]], { evidenceId })
-
-    return rows or {}
-end)
+-- Evidence CRUD callbacks are implemented in evidence.lua.
 
 -- Add a note to a case
 ps.registerCallback(resourceName .. ':server:addCaseNote', function(source, caseId, content)

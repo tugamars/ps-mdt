@@ -15,6 +15,7 @@ export interface Report {
 	};
 	evidence: Evidence[];
 	charges: ReportCharge[];
+	sentencingActions: SentencingAction[];
 	restrictions: string[];
 	vehicles: ReportVehicle[];
 }
@@ -70,6 +71,18 @@ export interface ReportCharge {
 	count: number;
 	time: number;
 	fine: number;
+}
+
+export interface SentencingAction {
+	citizenid: string;
+	action: "fine" | "jail" | string;
+	amount?: number;
+	sentence?: number;
+	status?: string;
+	externalId?: string;
+	externalReference?: string;
+	createdAt?: string;
+	paidAt?: string | null;
 }
 
 export interface SearchResult {

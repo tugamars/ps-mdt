@@ -290,6 +290,19 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
             ) FROM mdt_reports_charges mrc WHERE mrc.reportid = mr.id) as charges,
             (SELECT JSON_ARRAYAGG(
                 JSON_OBJECT(
+                    'citizenid', msa.citizenid,
+                    'action', msa.action,
+                    'amount', msa.amount,
+                    'sentence', msa.sentence,
+                    'status', msa.status,
+                    'externalId', msa.external_id,
+                    'externalReference', msa.external_reference,
+                    'createdAt', msa.created_at,
+                    'paidAt', msa.paid_at
+                )
+            ) FROM mdt_sentencing_actions msa WHERE msa.reportid = mr.id) as sentencingActions,
+            (SELECT JSON_ARRAYAGG(
+                JSON_OBJECT(
                     'type', mre.type,
                     'content', mre.content,
                     'note', mre.note,
@@ -355,7 +368,7 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
                     mp.profilepicture AS image
                 FROM %s %s
                 LEFT JOIN mdt_profiles mp ON %s
-                WHERE %s COLLATE utf8mb4_general_ci IN (%s)
+                WHERE %s IN (%s)
             ]]):format(
                 _P.fields.citizenid,
                 TableMap.fullNameConcat(),
@@ -566,7 +579,7 @@ ps.registerCallback(resourceName .. ':server:searchVehiclesForReport', function(
             %s AS citizenid,
             %s AS owner_name
         FROM %s %s
-        LEFT JOIN %s %s ON %s COLLATE utf8mb4_general_ci = %s COLLATE utf8mb4_general_ci
+        LEFT JOIN %s %s ON %s = %s
         WHERE (
             %s LIKE ?
             OR %s LIKE ?

@@ -50,6 +50,7 @@ local function stopCameraView(notifyServer)
         ClearTimecycleModifier()
 
         ps.debug('Clearing focus area')
+        lib.hideTextUI();
         ClearFocus()
 
         DoScreenFadeIn(250)
@@ -125,19 +126,46 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
         end
     end
 
-    if cam and cam ~= 0 then
-        -- Use the coords and rot from server
-        local coords = cameraData.coords
-        local rotation = cameraData.rotation
-        ps.debug('Using coords from server data:', tostring(coords))
-        ps.debug('Using rotation from server data:', tostring(rotation))
 
-        -- Set camera pos and rot
-        SetCamCoord(cam, coords.x, coords.y, coords.z)
-        SetCamRot(cam, rotation.x, rotation.y, rotation.z, 2)
-        SetCamFov(cam, 50.0)
+    if cam and cam ~= 0 then
+        -- Prefer the decoupled feed transform (set by the feed placer). It is
+        -- exactly what the operator aimed, so no heading offset is applied.
+        -- Cameras without a feed fall back to the prop transform: player-placed
+        -- props look opposite to their heading so they get the (configurable)
+        -- offset; virtual cams and bodycams do not.
+        local hasFeed = cameraData.feedCoords ~= nil and cameraData.feedRotation ~= nil
+        local coords, rotation, fov
+
+        if hasFeed then
+            coords = cameraData.feedCoords
+            rotation = cameraData.feedRotation
+            fov = cameraData.feedFov or 50.0
+            ps.debug('Using decoupled feed transform for camera view')
+            SetCamCoord(cam, coords.x, coords.y, coords.z)
+            SetCamRot(cam, rotation.x, rotation.y, rotation.z, 2)
+            SetCamFov(cam, fov)
+        else
+            coords = cameraData.coords
+            rotation = cameraData.rotation
+            local needsOffset = cameraData.spawnsModel == true and not cameraData.isBodycam and not cameraData.isDashcam
+            local headingOffset = needsOffset and (camCfg.HeadingOffset or 180.0) or 0.0
+            ps.debug('Using prop transform (no feed) for camera view')
+            SetCamCoord(cam, coords.x, coords.y, coords.z)
+            SetCamRot(cam, rotation.x, rotation.y, (rotation.z + headingOffset) % 360.0, 2)
+            SetCamFov(cam, 50.0)
+        end
 
         ps.debug('Camera properties set - Position:', tostring(coords), 'Rotation:', tostring(rotation))
+
+        if(cameraData.isBodycam) then
+            ps.debug('Camera is a bodycam, target source:', tostring(cameraData.targetSource))
+
+            local targetPed = GetPlayerPed(GetPlayerFromServerId(cameraData.targetSource))
+
+            AttachCamToPedBone(cam, targetPed, 31086, 0.05, 0.05, 0.05, true) -- SKEL_Head
+            SetCamRot(cam, GetEntityRotation(targetPed, 2), 2)
+            SetCamFov(cam, GetGameplayCamFov())
+        end
 
         -- debug shit
         -- local camCoords = GetCamCoord(cam)
@@ -158,6 +186,22 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
         DoScreenFadeIn(250)
         startCameraControlThread()
 
+
+        local helpLabel = currentCameraData and currentCameraData.isBodycam and 'Bodycam View' or 'Camera View'
+        lib.showTextUI(
+                helpLabel ..
+                        '  \nMouse Wheel: Zoom In/Out ' ..
+                        (not (currentCameraData and currentCameraData.isBodycam) and '  \nMouse: Rotate Camera View' or '') ..
+                        '  \n[Esc] Exit Camera',
+                {
+                    position = 'right-center',
+                    icon = 'camera',
+                    style = {
+                        borderRadius = 6,
+                    }
+                }
+        )
+
         ps.debug('Camera view activated at coordinates:', tostring(coords))
     else
         ps.error('Failed to create camera - CreateCam returned:', tostring(cam))
@@ -169,6 +213,7 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
         end
 
         ClearFocus() -- Clear focus area since we're exiting
+        lib.hideTextUI();
         DoScreenFadeIn(250)
     end
 end)
@@ -191,24 +236,31 @@ updateCameraControls = function()
         return
     end
 
+
     -- For bodycams, attach camera to the target ped's head bone so it follows movement
     if currentCameraData and currentCameraData.isBodycam and currentCameraData.targetSource then
         local targetPed = GetPlayerPed(GetPlayerFromServerId(currentCameraData.targetSource))
         if targetPed and targetPed ~= 0 and DoesEntityExist(targetPed) then
-            -- SKEL_Head bone index = 31086
-            local boneIndex = GetPedBoneIndex(targetPed, 31086)
-            local boneCoords = GetPedBoneCoords(targetPed, boneIndex, 0.0, 0.0, 0.0)
-            -- Offset slightly forward and up from the head to simulate chest/shoulder bodycam
+
+            local boneIndex = GetPedBoneIndex(targetPed, 46420)
+            local boneCoords = GetPedBoneCoords(targetPed, boneIndex, 0.1, 0.025, 0.1)
             local forward = GetEntityForwardVector(targetPed)
             local camX = boneCoords.x + forward.x * 0.1
             local camY = boneCoords.y + forward.y * 0.1
             local camZ = boneCoords.z + 0.05
+            SetCamRot(currentCamera, 0, 0, GetEntityHeading(targetPed), 2)
+            --[[
+            -- SKEL_Head bone index = 31086
+            -- Offset slightly forward and up from the head to simulate chest/shoulder bodycam
+
+
             SetCamCoord(currentCamera, camX, camY, camZ)
 
             -- Point camera in the direction the ped is facing
             local heading = GetEntityHeading(targetPed)
             local currentRot = GetCamRot(currentCamera, 2)
             SetCamRot(currentCamera, currentRot.x, currentRot.y, -heading, 2)
+            --]]
 
             -- Update focus area so world streams around the target
             SetFocusPosAndVel(camX, camY, camZ, 0, 0, 0)
@@ -250,6 +302,7 @@ updateCameraControls = function()
     end
 
     -- Show help text
+    --[[
     local helpLabel = currentCameraData and currentCameraData.isBodycam and 'Bodycam View' or 'Camera View'
     ShowCameraHelpNotification(
         helpLabel ..
@@ -257,6 +310,7 @@ updateCameraControls = function()
         (not (currentCameraData and currentCameraData.isBodycam) and '~n~Mouse: Rotate Camera View' or '') ..
         '~n~Press ~INPUT_FRONTEND_PAUSE_ALTERNATE~ Exit Camera'
     )
+    --]]
 end
 
 -- Camera control thread - spawned on demand, exits when camera view stops

@@ -109,7 +109,7 @@
 		evidence: ["evidence_view", "evidence_create"],
 		reports: ["reports_view", "reports_create"],
 		warrants: ["warrants_view", "warrants_issue"],
-		charges: ["charges_view", "charges_edit"],
+		charges: ["charges_view", "charges_edit", "charges_manage"],
 		cameras: ["cameras_view"],
 		bodycams: ["bodycams_view"],
 		ia: ["ia_view"],

@@ -170,18 +170,18 @@ export function createReportService() {
 		}
 	}
 
-	async function sendToJail(citizenId: string, sentence: number): Promise<{ success: boolean; message?: string }> {
+	async function sendToJail(citizenId: string, sentence: number, reportId?: string): Promise<{ success: boolean; message?: string }> {
 		return fetchNui<{ success: boolean; message?: string }>(
 			NUI_EVENTS.SENTENCING.SEND_TO_JAIL,
-			{ citizenId, sentence },
+			{ citizenId, sentence, reportId },
 			{ success: true, message: `Sent to jail for ${sentence} months` },
 		);
 	}
 
-	async function giveCitation(citizenId: string, fine: number, reportId?: string): Promise<{ success: boolean; message?: string }> {
-		return fetchNui<{ success: boolean; message?: string }>(
+	async function giveCitation(citizenId: string, fine: number, reportId?: string, charges?: any[]): Promise<{ success: boolean; message?: string; sentencingAction?: Report["sentencingActions"][number] }> {
+		return fetchNui<{ success: boolean; message?: string; sentencingAction?: Report["sentencingActions"][number] }>(
 			NUI_EVENTS.SENTENCING.GIVE_CITATION,
-			{ citizenId, fine, reportId },
+			{ citizenId, fine, reportId, charges },
 			{ success: true, message: "Citation given" },
 		);
 	}
@@ -237,6 +237,7 @@ export function createReportService() {
 			involved,
 			evidence,
 			charges,
+			sentencingActions: normalizeSentencingActions(raw?.sentencingActions),
 			restrictions: normalizeRestrictions(raw?.restrictions),
 			vehicles: (() => {
 				try {
@@ -337,6 +338,22 @@ export function createReportService() {
 		}));
 	}
 
+	function normalizeSentencingActions(actions: any): Report["sentencingActions"] {
+		const parsed = parseJsonString(actions);
+		const list = Array.isArray(parsed) ? parsed : Array.isArray(actions) ? actions : [];
+		return list.filter(Boolean).map((action: any) => ({
+			citizenid: action.citizenid || "",
+			action: action.action || "",
+			amount: action.amount !== undefined && action.amount !== null ? Number(action.amount) : undefined,
+			sentence: action.sentence !== undefined && action.sentence !== null ? Number(action.sentence) : undefined,
+			status: action.status || "",
+			externalId: action.externalId || action.external_id || undefined,
+			externalReference: action.externalReference || action.external_reference || undefined,
+			createdAt: action.createdAt || action.created_at || undefined,
+			paidAt: action.paidAt || action.paid_at || null,
+		}));
+	}
+
 	function normalizeRestrictions(restrictions: any): string[] {
 		const parsed = parseJsonString(restrictions);
 		const list = Array.isArray(parsed)
@@ -380,6 +397,7 @@ export function createReportService() {
 			},
 			evidence: [],
 			charges: [],
+			sentencingActions: [],
 			restrictions: [],
 			vehicles: [],
 		};

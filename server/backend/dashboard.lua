@@ -208,7 +208,7 @@ ps.registerCallback(resourceName .. ':server:getActiveUnits', function(source)
     local src = source
     assert(src, 'Player ID cannot be nil')
     return Cache.getOrSet('dashboard:activeUnits', Config.CacheTTL and Config.CacheTTL.ActiveUnits or 10, function()
-        return { count = ps.getJobTypeCount('leo') }
+        return { count = GetActiveUnits() }
     end)
 end)
 

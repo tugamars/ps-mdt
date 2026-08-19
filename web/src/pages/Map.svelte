@@ -26,10 +26,17 @@
 	let vehicleLayer = L.layerGroup();
 	let bodycamLayer = L.layerGroup();
 
-	const coordScale = 4.5;
+	const CENTER_X = 117.41909;
+	const CENTER_Y = 172.62816;
+	const SCALE_X = 0.02061188;
+	const SCALE_Y = 0.02059566;
+
+
+	const offsetX = 40;
+	const offsetY = 31;
 
 	function toMapLatLng(coords: { x: number; y: number }) {
-		return [coords.y / coordScale, coords.x / coordScale] as [number, number];
+		return [ coords.y, coords.x];
 	}
 
 	function getTrackConfig(kind: "officer" | "vehicle" | "bodycam") {
@@ -166,7 +173,7 @@
 					x_difference * x_difference + y_difference * y_difference,
 				);
 			},
-			transformation: new Transformation(0.02072, 117.3, -0.0205, 172.8),
+			transformation: new Transformation(0.02061188, 117.41909, -0.02059566, 172.62816),
 			infinite: false,
 		});
 	}
@@ -201,7 +208,7 @@
 			maxZoom: 10,
 			zoom: 5,
 			preferCanvas: true,
-			center: [0, -1024],
+			center: [0, 0],
 			maxBoundsViscosity: 1.0,
 			zoomControl: false,
 		} as any);

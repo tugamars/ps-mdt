@@ -133,13 +133,13 @@ Config.PoliceJobs = {
     'gov_business'
 }
 
-Config.DojJobType = "doj"
+Config.DojJobType = "law"
 Config.DojJobs = {
     'lawyer',
     'judge',
 }
 
-Config.MedicalJobType = "ems"
+Config.MedicalJobType = "EMS_FD"
 Config.MedicalJobs = {
     'ambulance',
 }
@@ -244,6 +244,7 @@ Config.ManagementPermissions = {
     -- Charges
     'charges_view',
     'charges_edit',
+    'charges_manage',
     -- Dispatch
     'dispatch_attach',
     'dispatch_route',
@@ -266,6 +267,11 @@ Config.ManagementPermissions = {
     'management_bulletins',
     'management_activity',
 }
+
+-- Ace permission required to read the full MDT audit log.
+-- Example server.cfg:
+-- add_ace group.admin ps-mdt.audit allow
+Config.AuditLogAcePermission = 'ps-mdt.audit'
 
 -- Bodycam Settings (override defaults if needed, remove to use built-in defaults)
 Config.Bodycam = {

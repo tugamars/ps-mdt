@@ -39,6 +39,7 @@ server_scripts {
   'server/fivemanage.lua',
   'server/functions.lua',
   'server/main.lua',
+  'server/integration/**.lua',
   'server/backend/**.lua',
   'modules/**/server/**/*.lua',
 }

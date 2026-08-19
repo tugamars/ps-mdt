@@ -70,7 +70,7 @@ local function getAllPermissions()
         'evidence_view', 'evidence_create', 'evidence_transfer', 'evidence_upload',
         'reports_view', 'reports_create', 'reports_delete',
         'warrants_view', 'warrants_issue', 'warrants_close',
-        'charges_view', 'charges_edit',
+        'charges_view', 'charges_edit', 'charges_manage',
         'dispatch_attach', 'dispatch_route',
         'cameras_view', 'bodycams_view',
         'roster_manage_certifications', 'roster_manage_officers',

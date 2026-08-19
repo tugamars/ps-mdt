@@ -96,6 +96,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		permissions: [
 			{ key: "charges_view", label: "View Charges", description: "View penal code charges" },
 			{ key: "charges_edit", label: "Edit Charges", description: "Edit fine amounts and jail time" },
+			{ key: "charges_manage", label: "Manage Penal Codes", description: "Add and delete penal code charges" },
 		],
 	},
 	{

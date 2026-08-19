@@ -1,5 +1,151 @@
 local resourceName = tostring(GetCurrentResourceName())
 
+local function getActorCitizenId(actorSource, payload)
+    if actorSource and tonumber(actorSource) and tonumber(actorSource) > 0 then
+        local citizenid = ps.getIdentifier(tonumber(actorSource))
+        if citizenid and citizenid ~= '' then
+            return citizenid
+        end
+    end
+
+    return payload.createdBy
+        or payload.created_by
+        or payload.lastHolder
+        or payload.last_holder
+        or payload.citizenid
+        or payload.citizenId
+end
+
+local function CreateEvidence(payload, actorSource)
+    payload = payload or {}
+    local evidence = payload.evidence or payload
+
+    if type(evidence) ~= 'table' or not evidence.title or tostring(evidence.title) == '' then
+        return { success = false, error = 'Invalid evidence: title is required' }
+    end
+
+    local actorCitizenId = getActorCitizenId(actorSource, evidence)
+    local lastHolder = evidence.lastHolder or evidence.last_holder or actorCitizenId
+    local createdBy = evidence.createdBy or evidence.created_by or actorCitizenId
+    local custodyHolder = evidence.custodyCitizenId or evidence.custody_citizenid or lastHolder or createdBy
+
+    local evidenceId = MySQL.insert.await([[
+        INSERT INTO mdt_evidence_items
+        (case_id, report_id, title, type, serial, notes, location, stash_id, `stored`, last_holder, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ]], {
+        tonumber(evidence.caseId or evidence.case_id),
+        tonumber(evidence.reportId or evidence.report_id),
+        tostring(evidence.title),
+        evidence.type or 'Evidence',
+        evidence.serial or '',
+        evidence.notes or '',
+        evidence.location or '',
+        evidence.stashId or evidence.stash_id or '',
+        evidence.stored and 1 or 0,
+        lastHolder,
+        createdBy
+    })
+
+    if not evidenceId then
+        return { success = false, error = 'Failed to add evidence' }
+    end
+
+    MySQL.insert.await([[
+        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
+        VALUES (?, ?, ?, 'collected', ?)
+    ]], { evidenceId, nil, custodyHolder, evidence.custodyNotes or evidence.custody_notes or evidence.notes or '' })
+
+    if actorSource and tonumber(actorSource) and tonumber(actorSource) > 0 and ps.auditLog then
+        ps.auditLog(tonumber(actorSource), 'evidence_added', 'evidence', evidenceId, evidence)
+    end
+
+    return { success = true, id = evidenceId }
+end
+
+exports('CreateEvidence', CreateEvidence)
+
+local validCustodyActions = {
+    collected = true,
+    transferred = true,
+    stored = true,
+    released = true,
+    updated = true,
+    viewed = true
+}
+
+local function UpdateEvidenceCustody(payload, actorSource)
+    payload = payload or {}
+    local evidenceId = tonumber(payload.evidenceId or payload.evidence_id)
+    if not evidenceId then
+        return { success = false, error = 'Invalid evidence id' }
+    end
+
+    local action = payload.action or 'updated'
+    if not validCustodyActions[action] then
+        return { success = false, error = 'Invalid custody action' }
+    end
+
+    local actorCitizenId = getActorCitizenId(actorSource, payload)
+    local fromCitizenId = payload.fromCitizenId or payload.from_citizenid
+    local toCitizenId = payload.toCitizenId or payload.to_citizenid or payload.citizenid or payload.citizenId
+
+    if not fromCitizenId and action == 'transferred' then
+        fromCitizenId = actorCitizenId
+    end
+
+    if not toCitizenId and action ~= 'released' then
+        toCitizenId = actorCitizenId
+    end
+
+    local custodyId = MySQL.insert.await([[
+        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
+        VALUES (?, ?, ?, ?, ?)
+    ]], { evidenceId, fromCitizenId, toCitizenId, action, payload.notes or '' })
+
+    if not custodyId then
+        return { success = false, error = 'Failed to update evidence custody' }
+    end
+
+    local updates = {}
+    local values = {}
+
+    if payload.updateLastHolder ~= false and action ~= 'viewed' and toCitizenId then
+        updates[#updates + 1] = 'last_holder = ?'
+        values[#values + 1] = toCitizenId
+    end
+
+    if payload.stored ~= nil then
+        updates[#updates + 1] = '`stored` = ?'
+        values[#values + 1] = payload.stored and 1 or 0
+    elseif action == 'stored' then
+        updates[#updates + 1] = '`stored` = ?'
+        values[#values + 1] = 1
+    elseif action == 'released' then
+        updates[#updates + 1] = '`stored` = ?'
+        values[#values + 1] = 0
+    end
+
+    if #updates > 0 then
+        values[#values + 1] = evidenceId
+        MySQL.update.await(('UPDATE mdt_evidence_items SET %s WHERE id = ?'):format(table.concat(updates, ', ')), values)
+    end
+
+    if actorSource and tonumber(actorSource) and tonumber(actorSource) > 0 and ps.auditLog and action ~= 'viewed' then
+        ps.auditLog(tonumber(actorSource), 'evidence_updated', 'evidence', evidenceId, {
+            custodyId = custodyId,
+            action = action,
+            fromCitizenId = fromCitizenId,
+            toCitizenId = toCitizenId,
+            notes = payload.notes or ''
+        })
+    end
+
+    return { success = true, id = custodyId }
+end
+
+exports('UpdateEvidenceCustody', UpdateEvidenceCustody)
+
 ps.registerCallback(resourceName .. ':server:getEvidenceItems', function(source, page, limit, filters)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
@@ -22,7 +168,7 @@ ps.registerCallback(resourceName .. ':server:getEvidenceItems', function(source,
     end
 
     if filters and filters.stored ~= nil and filters.stored ~= '' then
-        queryParts[#queryParts + 1] = 'stored = ?'
+        queryParts[#queryParts + 1] = '`stored` = ?'
         values[#values + 1] = filters.stored and 1 or 0
     end
 
@@ -35,7 +181,7 @@ ps.registerCallback(resourceName .. ':server:getEvidenceItems', function(source,
     listValues[#listValues + 1] = offset
 
     local evidence = MySQL.query.await(([[
-        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by, created_at, updated_at
+        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, `stored`, last_holder, created_by, created_at, updated_at
         FROM mdt_evidence_items
         WHERE %s
         ORDER BY created_at DESC
@@ -76,7 +222,7 @@ ps.registerCallback(resourceName .. ':server:searchEvidenceItems', function(sour
     local total = totalRow and totalRow.total or 0
 
     local evidence = MySQL.query.await([[
-        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by, created_at, updated_at
+        SELECT id, case_id, report_id, title, type, serial, notes, location, stash_id, `stored`, last_holder, created_by, created_at, updated_at
         FROM mdt_evidence_items
         WHERE title LIKE ? OR serial LIKE ? OR notes LIKE ? OR location LIKE ? OR stash_id LIKE ?
         ORDER BY created_at DESC
@@ -99,51 +245,19 @@ ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, 
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
     payload = payload or {}
-    local caseId = tonumber(payload.caseId)
-    local reportId = tonumber(payload.reportId)
     local evidence = payload.evidence or payload
 
-    if not evidence or not evidence.title then
-        return { success = false, error = 'Invalid evidence: title is required' }
-    end
+    evidence.caseId = evidence.caseId or payload.caseId
+    evidence.reportId = evidence.reportId or payload.reportId
 
-    local evidenceId = MySQL.insert.await([[
-        INSERT INTO mdt_evidence_items
-        (case_id, report_id, title, type, serial, notes, location, stash_id, stored, last_holder, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], {
-        caseId,
-        reportId,
-        evidence.title,
-        evidence.type or 'Evidence',
-        evidence.serial or '',
-        evidence.notes or '',
-        evidence.location or '',
-        evidence.stashId or '',
-        evidence.stored and 1 or 0,
-        ps.getIdentifier(src),
-        ps.getIdentifier(src)
-    })
-
-    if not evidenceId then
-        return { success = false, error = 'Failed to add evidence' }
-    end
-
-    MySQL.insert.await([[
-        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
-        VALUES (?, ?, ?, 'collected', ?)
-    ]], { evidenceId, nil, ps.getIdentifier(src), evidence.notes or '' })
-
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_added', 'evidence', evidenceId, evidence)
-    end
-
-    return { success = true, id = evidenceId }
+    return CreateEvidence(evidence, src)
 end)
 
 ps.registerCallback(resourceName .. ':server:updateEvidenceItem', function(source, evidenceId, evidence)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+
+    print("Update evidence item");
 
     evidenceId = tonumber(evidenceId)
     if not evidenceId or not evidence then
@@ -178,7 +292,7 @@ ps.registerCallback(resourceName .. ':server:updateEvidenceItem', function(sourc
         values[#values + 1] = evidence.stashId
     end
     if evidence.stored ~= nil then
-        updates[#updates + 1] = 'stored = ?'
+        updates[#updates + 1] = '`stored` = ?'
         values[#values + 1] = evidence.stored and 1 or 0
     end
 
@@ -240,22 +354,14 @@ ps.registerCallback(resourceName .. ':server:transferEvidenceItem', function(sou
         return { success = false, error = 'Invalid evidence transfer' }
     end
 
-    local fromCitizenId = ps.getIdentifier(src)
-    MySQL.update.await('UPDATE mdt_evidence_items SET last_holder = ? WHERE id = ?', { toCitizenId, evidenceId })
+    local result = UpdateEvidenceCustody({
+        evidenceId = evidenceId,
+        action = 'transferred',
+        toCitizenId = toCitizenId,
+        notes = notes or ''
+    }, src)
 
-    MySQL.insert.await([[
-        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
-        VALUES (?, ?, ?, 'transferred', ?)
-    ]], { evidenceId, fromCitizenId, toCitizenId, notes or '' })
-
-    if ps.auditLog then
-        ps.auditLog(src, 'evidence_transferred', 'evidence', evidenceId, {
-            fromCitizenId = fromCitizenId,
-            toCitizenId = toCitizenId
-        })
-    end
-
-    return { success = true }
+    return result.success and { success = true } or result
 end)
 
 ps.registerCallback(resourceName .. ':server:getEvidenceCustody', function(source, evidenceId)
@@ -284,14 +390,13 @@ ps.registerCallback(resourceName .. ':server:logEvidenceViewed', function(source
     evidenceId = tonumber(evidenceId)
     if not evidenceId then return { success = false } end
 
-    local citizenid = ps.getIdentifier(src)
+    local result = UpdateEvidenceCustody({
+        evidenceId = evidenceId,
+        action = 'viewed',
+        updateLastHolder = false
+    }, src)
 
-    MySQL.insert.await([[
-        INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
-        VALUES (?, NULL, ?, 'viewed', '')
-    ]], { evidenceId, citizenid })
-
-    return { success = true }
+    return result.success and { success = true } or { success = false }
 end)
 
 ps.registerCallback(resourceName .. ':server:addEvidenceImage', function(source, evidenceId, image)

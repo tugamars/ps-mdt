@@ -3,8 +3,7 @@ local resourceName = tostring(GetCurrentResourceName())
 local function getOfficerTrackers()
     local officers = {}
 
-    if exports['qb-core'] then
-        local QBCore = exports['qb-core']:GetCoreObject()
+    if exports['qb-core'] and GetResourceState("qb-core") == "started" then
         local players = QBCore.Functions.GetQBPlayers() or {}
         for _, player in pairs(players) do
             local data = player.PlayerData
@@ -39,6 +38,7 @@ local function getOfficerTrackers()
                 local jobType = ps.getJobType and ps.getJobType(playerId) or nil
                 if IsPoliceJob(jobName, jobType) then
                     local ped = GetPlayerPed(playerId)
+
                     if ped and ped ~= 0 then
                         local coords = GetEntityCoords(ped)
                         local coordsTable = { x = coords.x, y = coords.y, z = coords.z }
@@ -57,6 +57,8 @@ local function getOfficerTrackers()
         end
     end
 
+    print(json.encode(officers))
+
     return officers
 end
 
@@ -64,7 +66,7 @@ local function getVehicleTrackers()
     local vehicles = {}
     local seen = {}
 
-    if exports['qb-core'] then
+    if exports['qb-core'] and GetResourceState("qb-core") == "started" then
         local QBCore = exports['qb-core']:GetCoreObject()
         local players = QBCore.Functions.GetQBPlayers() or {}
         for _, player in pairs(players) do
@@ -90,13 +92,42 @@ local function getVehicleTrackers()
         end
     end
 
+    if ps and ps.getAllPlayers then
+        local players = ps.getAllPlayers() or {}
+        for _, playerId in pairs(players) do
+            if ps.getJobDuty and ps.getJobDuty(playerId) then
+                local jobName = ps.getJobName and ps.getJobName(playerId) or nil
+                local jobType = ps.getJobType and ps.getJobType(playerId) or nil
+                if IsPoliceJob(jobName, jobType) then
+                    local ped = GetPlayerPed(playerId)
+                    if ped and ped ~= 0 then
+                        local veh = GetVehiclePedIsIn(ped, false)
+                        if veh and veh ~= 0 and not seen[veh] then
+                            seen[veh] = true
+                            local coords = GetEntityCoords(veh)
+                            local coordsTable = { x = coords.x, y = coords.y, z = coords.z }
+                            local heading = GetEntityHeading(veh)
+                            local plate = GetVehicleNumberPlateText(veh)
+                            vehicles[#vehicles + 1] = {
+                                plate = plate,
+                                coords = coordsTable,
+                                heading = heading,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+
+    end
+
     return vehicles
 end
 
 local function getBodycamTrackers()
     local bodycams = {}
 
-    if exports['qb-core'] then
+    if exports['qb-core'] and GetResourceState("qb-core") == "started" then
         local QBCore = exports['qb-core']:GetCoreObject()
         local players = QBCore.Functions.GetQBPlayers() or {}
         for _, player in pairs(players) do

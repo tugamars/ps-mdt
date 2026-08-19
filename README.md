@@ -215,6 +215,68 @@ Group related reports into investigations. Assign officers, set priority and sta
 ### Evidence
 Register evidence with type, serial, and location. Upload photos, track chain of custody, transfer between officers, link to cases and reports.
 
+Server scripts can create evidence directly with:
+
+```lua
+local result = exports['ps-mdt']:CreateEvidence({
+    title = '9mm Casing',
+    type = 'Shell Casing',
+    serial = 'ABC123',
+    notes = 'Collected near postal 402',
+    location = 'Vespucci Blvd',
+    caseId = 12,
+    reportId = 34,
+    stashId = 'evidence_402_abc123',
+    stored = true,
+    createdBy = 'OFFICER_CITIZENID',
+    lastHolder = 'OFFICER_CITIZENID'
+})
+
+if result.success then
+    print(('Created evidence #%s'):format(result.id))
+end
+```
+
+Pass an officer server ID as the second argument to record the normal MDT audit log: `exports['ps-mdt']:CreateEvidence(data, source)`.
+
+`CreateEvidence` fields:
+
+- Required: `title`
+- Optional: `type` defaults to `Evidence`
+- Optional: `caseId` / `case_id` and `reportId` / `report_id`; omit or pass `nil`/`''` to leave them unlinked
+- Optional: `serial`, `notes`, `location`, and `stashId` / `stash_id`; omitted values are stored as empty strings
+- Optional: `stored`; defaults to `false`
+- Optional: `createdBy` / `created_by`, `lastHolder` / `last_holder`, and `custodyCitizenId` / `custody_citizenid`; when omitted, the officer `source` is used if provided
+- Optional: `custodyNotes` / `custody_notes`; defaults to `notes`
+
+Create a chain of custody entry and update the evidence holder/storage state with:
+
+```lua
+local result = exports['ps-mdt']:UpdateEvidenceCustody({
+    evidenceId = 123,
+    action = 'transferred', -- collected, transferred, stored, released, updated, viewed
+    fromCitizenId = 'OFFICER_CITIZENID',
+    toCitizenId = 'EVIDENCE_TECH_CITIZENID',
+    notes = 'Transferred to evidence locker'
+}, source)
+
+if result.success then
+    print(('Created custody entry #%s'):format(result.id))
+end
+```
+
+For `stored` and `released` actions, the export updates the evidence `stored` flag automatically. Pass `updateLastHolder = false` when you only want to add a custody log entry without changing `last_holder`.
+
+`UpdateEvidenceCustody` fields:
+
+- Required: `evidenceId` / `evidence_id`
+- Optional: `action`; defaults to `updated`; valid values are `collected`, `transferred`, `stored`, `released`, `updated`, and `viewed`
+- Optional: `fromCitizenId` / `from_citizenid`; for `transferred`, it defaults to the officer `source` citizen ID when provided
+- Optional: `toCitizenId` / `to_citizenid` / `citizenid` / `citizenId`; defaults to the officer `source` citizen ID when provided, except for `released`
+- Optional: `notes`; defaults to an empty string
+- Optional: `stored`; overrides the automatic stored flag behavior
+- Optional: `updateLastHolder`; defaults to `true` for non-`viewed` actions
+
 ### Warrants
 Issue warrants with expiry dates. Track felony/misdemeanor/infraction counts. Close them when served.
 

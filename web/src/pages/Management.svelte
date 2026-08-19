@@ -19,7 +19,7 @@
 	type View = "activity" | "bulletins" | "permissions" | "tracking" | "tags" | "jailfines" | "templates" | "awards" | "licenses" | "colors" | "sop" | "visibility" | "fto";
 
 	const EMS_HIDDEN_TABS: View[] = ["jailfines", "tracking", "awards"];
-	const DOJ_HIDDEN_TABS: View[] = ["bulletins", "activity", "jailfines", "tracking", "licenses", "awards", "colors", "sop", "visibility", "fto", "tags", "templates"];
+	const DOJ_HIDDEN_TABS: View[] = ["bulletins", "jailfines", "tracking", "licenses", "awards", "colors", "sop", "visibility", "fto", "tags", "templates"];
 
 	const allTabs: { key: View; label: string; permission?: string }[] = [
 		{ key: "bulletins", label: "Bulletins", permission: "management_bulletins" },
