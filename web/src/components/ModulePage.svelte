@@ -14,7 +14,11 @@
 
     let activeTab = $derived(tabService.getActiveInstanceTab());
     let module = $derived(moduleService.getTabByName(activeTab));
-    let moduleApi = $derived(module ? createModuleApi(module.moduleId, authService) : null);
+    let moduleApi = $derived(
+        module
+            ? createModuleApi(module.moduleId, authService, { moduleTabs: moduleService.moduleTabs })
+            : null,
+    );
 
     // Dynamically import the module's compiled JavaScript component
     let componentPromise = $derived(

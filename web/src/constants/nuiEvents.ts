@@ -4,6 +4,7 @@ export const NUI_EVENTS = {
         SET_MODULE_TABS: "setModuleTabs",
         GET_MODULE_TABS: "getModuleTabs",
         CALLBACK: "moduleCallback",
+        SEARCH_CORE: "moduleCoreSearch",
     },
 	DASHBOARD: {
 		GET_JOB_DATA: "getJobData",

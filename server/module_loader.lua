@@ -5,6 +5,43 @@ MDT = {
     Tabs = {}
 }
 
+-- Public server helpers for scripts under modules/**/server. Permission checks
+-- resolve CheckPermission at call time because auth.lua loads after this file.
+function MDT.Notify(source, message, notificationType)
+    if type(source) ~= 'number' or type(message) ~= 'string' or message == '' then return false end
+    ps.notify(source, message, notificationType or 'info')
+    return true
+end
+
+function MDT.HasPermission(source, permission)
+    if type(CheckPermission) ~= 'function' then return false end
+    return CheckPermission(source, permission) == true
+end
+
+function MDT.GetModule(moduleId)
+    if type(moduleId) ~= 'string' then return nil end
+    return MDT.Modules[moduleId]
+end
+
+function MDT.GetCoreOptions(source)
+    if source == 'job-types' then
+        return {
+            { value = Config.PoliceJobType or 'leo', label = 'Law Enforcement' },
+            { value = Config.MedicalJobType or 'ems', label = 'Emergency Medical Services' },
+            { value = Config.DojJobType or 'doj', label = 'Department of Justice' },
+        }
+    end
+    if source == 'police-jobs' then return Config.PoliceJobs or {} end
+    if source == 'doj-jobs' then return Config.DojJobs or {} end
+    if source == 'impound-locations' then return Config.ImpoundLocations or {} end
+    return {}
+end
+
+exports('Notify', MDT.Notify)
+exports('HasPermission', MDT.HasPermission)
+exports('GetModule', MDT.GetModule)
+exports('GetCoreOptions', MDT.GetCoreOptions)
+
 print("Module loader started");
 
 local function contains(list, value)

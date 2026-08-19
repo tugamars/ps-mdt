@@ -1,5 +1,7 @@
 # MDT UI modules
 
+For the complete module structure and reusable NUI/Lua APIs, see [`../MODULES.md`](../MODULES.md).
+
 Each module registers its `manifest.json` with `exports['ps-mdt']:RegisterModule(...)` from a server script. The core sends the registered tabs to the UI and adds them to a **Modules** sidebar group automatically.
 
 ```json
