@@ -902,7 +902,7 @@
 					{#if evidenceError}
 						<p class="error-text">{evidenceError}</p>
 					{/if}
-					{#if selectedCase.evidence.length === 0}
+					{#if evidenceTotal === 0}
 						<p class="muted-text">No evidence logged.</p>
 					{:else}
 						<div class="item-list">
@@ -974,8 +974,8 @@
 							<input class="form-input" placeholder="Image label" bind:value={evidenceImageLabel} />
 							<button class="primary-btn" onclick={handleUploadEvidenceImage}>Upload Image</button>
 						</div>
-						{#if selectedCase?.evidence}
-							{#each selectedCase.evidence.filter((e) => e.id === selectedEvidenceId) as item}
+						{#if pagedEvidence.length > 0}
+							{#each pagedEvidence.filter((e) => e.id === selectedEvidenceId) as item}
 								{#if item.images && item.images.length > 0}
 									<div class="item-list">
 										{#each item.images as image}

@@ -192,8 +192,7 @@ RegisterNUICallback('addEvidenceItem', function(data, cb)
 
     local result = ps.callback(
         resourceName .. ':server:addEvidenceItem',
-        data.caseId,
-        data.evidence
+        data
     )
     cb(result or { success = false })
 end)

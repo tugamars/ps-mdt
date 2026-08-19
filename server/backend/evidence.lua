@@ -168,7 +168,7 @@ ps.registerCallback(resourceName .. ':server:getEvidenceItems', function(source,
     end
 
     if filters and filters.stored ~= nil and filters.stored ~= '' then
-        queryParts[#queryParts + 1] = 'stored = ?'
+        queryParts[#queryParts + 1] = '`stored` = ?'
         values[#values + 1] = filters.stored and 1 or 0
     end
 
@@ -240,14 +240,14 @@ ps.registerCallback(resourceName .. ':server:searchEvidenceItems', function(sour
     }
 end)
 
-ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source,caseId, payload)
+ps.registerCallback(resourceName .. ':server:addEvidenceItem', function(source, payload)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
     payload = payload or {}
     local evidence = payload.evidence or payload
 
-    evidence.caseId = evidence.caseId or caseId
+    evidence.caseId = evidence.caseId or payload.caseId
     evidence.reportId = evidence.reportId or payload.reportId
 
     return CreateEvidence(evidence, src)
@@ -292,7 +292,7 @@ ps.registerCallback(resourceName .. ':server:updateEvidenceItem', function(sourc
         values[#values + 1] = evidence.stashId
     end
     if evidence.stored ~= nil then
-        updates[#updates + 1] = 'stored = ?'
+        updates[#updates + 1] = '`stored` = ?'
         values[#values + 1] = evidence.stored and 1 or 0
     end
 
