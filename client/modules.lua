@@ -1,4 +1,5 @@
 local tabsCache = {}
+local moduleAvailability = {}
 local moduleNuiCallbacks = {}
 
 -- Public client helpers for scripts under modules/**/client. Keeping these on a
@@ -48,6 +49,10 @@ RegisterNUICallback('moduleCallback', function(payload, cb)
         cb({ success = false, message = 'Invalid module callback' })
         return
     end
+    if moduleAvailability[moduleId] ~= true then
+        cb({ success = false, message = 'A required module dependency is not running' })
+        return
+    end
 
     local handler = moduleNuiCallbacks[moduleId .. ':' .. callbackName]
     if not handler then
@@ -81,8 +86,9 @@ RegisterNUICallback('getModuleTabs', function(_, cb)
 end)
 
 -- Listen for the server's response
-RegisterNetEvent('ps-mdt:setModuleTabs', function(tabs)
+RegisterNetEvent('ps-mdt:setModuleTabs', function(tabs, availability)
     tabsCache = tabs
+    moduleAvailability = type(availability) == 'table' and availability or {}
     -- Send the updated tabs to the NUI
     SendNUIMessage({
         action = 'setModuleTabs',

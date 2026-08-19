@@ -8,9 +8,10 @@
     interface Props {
         tabService: ReturnType<typeof createTabService>;
         authService: AuthService;
+		uiZoom: number;
     }
 
-    let { tabService, authService }: Props = $props();
+    let { tabService, authService, uiZoom }: Props = $props();
 
     let activeTab = $derived(tabService.getActiveInstanceTab());
     let module = $derived(moduleService.getTabByName(activeTab));
@@ -31,7 +32,7 @@
     );
 </script>
 
-<div>
+<div class="module-page-zoom" style:zoom={`${uiZoom}%`}>
     {#if componentPromise}
         {#await componentPromise}
             <p>Loading module...</p>
@@ -57,3 +58,10 @@
         </div>
     {/if}
 </div>
+
+<style>
+    .module-page-zoom {
+        width: 100%;
+        min-height: 100%;
+    }
+</style>

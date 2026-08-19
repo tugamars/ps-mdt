@@ -37,6 +37,7 @@
 	import { moduleService } from "../services/moduleService.svelte";
 	import type { createInstanceStateService } from "../services/instanceStateService.svelte";
 	import type { createTabService } from "../services/tabService.svelte";
+	import { preferencesService } from "../services/preferencesService.svelte";
 
 	interface Props {
 		authService: AuthService;
@@ -46,24 +47,16 @@
 
 	let { authService, tabService, instanceStateService }: Props = $props();
 
-	let contentZoom = $state("130%");
+	let activeComponent = $derived((getActiveComponent() as any) as ComponentId);
+	let contentZoom = $derived(`${preferencesService.uiZoom}%`);
+	let contentAreaZoom = $derived(activeComponent === "module_page" ? "100%" : contentZoom);
 	let sopAgreed = $state(false);
 	let sopChecked = $state(false);
 	let sopIntroduction = $state("");
 	let sopMissionStatement = $state("");
 
 	onMount(() => {
-		try {
-			const saved = localStorage.getItem("ps-mdt-preferences");
-			if (saved) {
-				const data = JSON.parse(saved);
-				if (data.uiZoom && data.uiZoom >= 100 && data.uiZoom <= 200) {
-					contentZoom = `${data.uiZoom}%`;
-				}
-			}
-		} catch {
-			// Ignore
-		}
+		preferencesService.load();
 	});
 
 	// Check SOP agreement when auth becomes authorized
@@ -131,7 +124,8 @@
 		if (pageId === "module_page") {
 			const moduleTab = moduleService.getTabByName(tabService.getActiveInstanceTab());
 			if (!moduleTab) return false;
-			if (moduleTab.jobs?.length && !moduleTab.jobs.includes(authService.jobType)) return false;
+			const jobType = authService.jobType;
+			if (moduleTab.jobs?.length && (jobType === "civilian" || !moduleTab.jobs.includes(jobType))) return false;
 			if (!moduleTab.permissions?.length) return true;
 			return authService.hasAnyPermission(...moduleTab.permissions);
 		}
@@ -162,7 +156,7 @@
 	}
 </script>
 
-<div class="content-area" style="zoom: {contentZoom};">
+<div class="content-area" style="zoom: {contentAreaZoom};">
 	{#if authService.isCivilian}
 		<CivilianView {authService} />
 	{:else if authService.isAuthorized}
@@ -174,8 +168,6 @@
 				missionStatement={sopMissionStatement}
 			/>
 		{:else}
-		{@const activeComponent = (getActiveComponent() as any) as ComponentId}
-
 		{#if !canAccessPage(activeComponent)}
 			<div class="denied-overlay">
 				<div class="denied-card">
@@ -247,7 +239,7 @@
 		{:else if activeComponent === "legal_documents"}
 			<LegalDocuments {tabService} {authService} />
         {:else if activeComponent === "module_page"}
-            <ModulePage {tabService} {authService} />
+            <ModulePage {tabService} {authService} uiZoom={preferencesService.uiZoom} />
 		{:else if isPlaceholderComponent(activeComponent)}
 			<PlaceholderContent componentId={activeComponent} />
 		{:else}

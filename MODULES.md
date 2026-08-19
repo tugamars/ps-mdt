@@ -43,6 +43,12 @@ Create `modules/my_module/manifest.json`:
   "name": "My Module",
   "author": "Your Name",
   "version": "1.0.0",
+  "dependencies": [
+    {
+      "resource": "another-resource",
+      "required": true
+    }
+  ],
   "permissions": [
     {
       "id": "my_module.view",
@@ -81,6 +87,10 @@ exports['ps-mdt']:RegisterModule(manifestJson)
 Rules:
 
 - The manifest `id` must match the module folder and contain only letters, numbers, `_`, or `-`.
+- `dependencies` accepts resource names or objects with `resource` and `required`. A string is treated as required, and `required` defaults to `true`.
+- A module with a required dependency that is not in the `started` state remains registered internally, but its tabs and permission definitions are withheld. Tabs update for connected users when the dependency starts or stops; permission definitions are filtered whenever they are requested.
+- An optional dependency (`"required": false`) produces a startup warning when unavailable but does not disable the module.
+- Module dependencies do not control FiveM resource start order. Ensure required resources before `ps-mdt` in `server.cfg`; use the root `fxmanifest.lua` only for hard resource-level dependencies.
 - Tab names should be unique across the MDT.
 - `icon` is a Material Icons name.
 - `jobs` accepts `leo`, `ems`, and `doj`. Omit it to allow all authorized MDT job types.
@@ -478,9 +488,11 @@ Server helpers:
 | `MDT.Notify(source, message, type?)` | Show the configured game notification to a player |
 | `MDT.HasPermission(source, permission)` | Check the player's stored/default permission with the boss override |
 | `MDT.GetModule(moduleId)` | Read a registered module manifest |
+| `MDT.IsModuleAvailable(moduleId)` | Check whether all required manifest dependencies are started |
+| `MDT.GetMissingDependencies(moduleId, requiredOnly)` | List unavailable manifest resources |
 | `MDT.GetCoreOptions(source)` | Read `job-types`, `police-jobs`, `doj-jobs`, or `impound-locations` |
 
-They are also available as same-context server exports named `Notify`, `HasPermission`, `GetModule`, and `GetCoreOptions`.
+They are also available as same-context server exports named `Notify`, `HasPermission`, `GetModule`, `GetMissingModuleDependencies`, `IsModuleAvailable`, and `GetCoreOptions`.
 
 ## Complete association module example
 
