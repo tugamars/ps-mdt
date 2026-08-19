@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { preferencesService } from "../services/preferencesService.svelte";
 
 	const STORAGE_KEY = "ps-mdt-preferences";
 
@@ -28,7 +29,10 @@
 			const data = JSON.parse(saved);
 			if (data.theme) theme = data.theme;
 			if (data.notificationSounds !== undefined) notificationSounds = data.notificationSounds;
-			if (data.uiZoom !== undefined) uiZoom = data.uiZoom;
+			if (data.uiZoom !== undefined) {
+				preferencesService.setUiZoom(data.uiZoom);
+				uiZoom = preferencesService.uiZoom;
+			}
 			if (data.defaultZoom !== undefined) defaultZoom = data.defaultZoom;
 			if (data.showOfficers !== undefined) showOfficers = data.showOfficers;
 			if (data.showVehicles !== undefined) showVehicles = data.showVehicles;
@@ -65,11 +69,8 @@
 	}
 
 	function applyZoom(value: number) {
-		uiZoom = value;
-		const el = document.querySelector(".content-area") as HTMLElement;
-		if (el) {
-			el.style.zoom = `${value}%`;
-		}
+		preferencesService.setUiZoom(value);
+		uiZoom = preferencesService.uiZoom;
 	}
 
 	function resetZoom() {

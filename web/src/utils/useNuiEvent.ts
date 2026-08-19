@@ -37,11 +37,19 @@ export function useNuiEvent<T = any>(
 		}
 	};
 
-	onMount(() => {
-		window.addEventListener("message", eventListener);
-	});
+	try {
+		// If this is called inside a Svelte component, onMount will work
+		onMount(() => {
+			window.addEventListener("message", eventListener);
+		});
 
-	onDestroy(() => {
-		window.removeEventListener("message", eventListener);
-	});
+		onDestroy(() => {
+			window.removeEventListener("message", eventListener);
+		});
+	} catch (e) {
+		// If we're outside a Svelte component, onMount will throw an error.
+		// We'll just add the event listener directly.
+		// Note: This means the listener will not be automatically removed.
+		window.addEventListener("message", eventListener);
+	}
 }

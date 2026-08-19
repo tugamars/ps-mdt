@@ -1,0 +1,27 @@
+{
+    "id": "example_module",
+    "name": "Example Module",
+    "author": "Your Name",
+    "version": "1.0.0",
+    "tabs": [
+        {
+            "id": "overview",
+            "name": "Example Tab",
+            "icon": "info",
+            "component": "module_page",
+            "permissions": ["example_module.view"]
+        }
+    ],
+    "permissions": [
+        {
+            "id": "example_module.view",
+            "label": "View Example Module",
+            "description": "Open and use the Example Module tab"
+        },
+        {
+            "id": "example_module.test",
+            "label": "Example Test Permission",
+            "description": "A test permission displayed inside the Example Module UI"
+        }
+    ]
+}

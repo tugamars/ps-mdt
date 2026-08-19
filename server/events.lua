@@ -45,15 +45,15 @@ RegisterNetEvent(resourceName..':server:viewReport', function(reportId)
     -- Validate input
     if not reportId then
         ps.warn("No report ID provided")
-    return end
+        return end
 
     if type(reportId) ~= "number" then
         ps.warn("Invalid report ID type: " .. type(reportId))
-    return end
+        return end
 
     if not Player then
         ps.warn("Player not found for report viewing: " .. reportId)
-    return end
+        return end
 
     ps.info("Player ID: " ..  src .. " is viewing report ID: " .. reportId)
     ps.debug("Server: Viewing report:", reportId)

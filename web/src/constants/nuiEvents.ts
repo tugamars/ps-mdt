@@ -1,5 +1,11 @@
 /** NUI event constants organized by domain */
 export const NUI_EVENTS = {
+    MODULES: {
+        SET_MODULE_TABS: "setModuleTabs",
+        GET_MODULE_TABS: "getModuleTabs",
+        CALLBACK: "moduleCallback",
+        SEARCH_CORE: "moduleCoreSearch",
+    },
 	DASHBOARD: {
 		GET_JOB_DATA: "getJobData",
 		GET_REPORT_STATISTICS: "getReportStatistics",
@@ -87,7 +93,7 @@ export const NUI_EVENTS = {
 		SET_WAYPOINT: "setWaypoint",
 		ADD_CITIZEN_NOTE: "addCitizenNote",
 		GET_AVAILABLE_TAGS : "getCitizenAvailableTags",
-		ADD_CITIZEN_TAG: "addCitizenTag",
+		ADD_CITEN_TAG: "addCitizenTag",
 		REMOVE_CITIZEN_TAG: "removeCitizenTag",
 	},
 	VEHICLE: {
@@ -309,6 +315,7 @@ export const DOJ_EVENTS = NUI_EVENTS.DOJ;
 
 // All events combined for type checking
 export const ALL_NUI_EVENTS = [
+    ...Object.values(NUI_EVENTS.MODULES),
 	...Object.values(NUI_EVENTS.DASHBOARD),
 	...Object.values(NUI_EVENTS.DISPATCH),
 	...Object.values(NUI_EVENTS.NAVIGATION),

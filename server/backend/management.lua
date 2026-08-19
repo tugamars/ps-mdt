@@ -80,6 +80,10 @@ local function getAllPermissions()
     }
 end
 
+local function getPermissionDefinitions()
+    return (MDT and MDT.GetPermissionDefinitions and MDT.GetPermissionDefinitions()) or {}
+end
+
 local function normalizePermissionList(list)
     local result = {}
     local seen = {}
@@ -143,6 +147,7 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
                 }
             },
             permissions = getAllPermissions(),
+            permissionDefinitions = getPermissionDefinitions(),
         }
     end
 
@@ -150,10 +155,11 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
     local storedRows = MySQL.query.await('SELECT grade, permissions FROM mdt_permission_roles WHERE job = ?', { jobName }) or {}
     ps.debug('[getPermissionRoles] stored rows', storedRows and #storedRows or 0)
     local storedByGrade = {}
+
     for _, row in ipairs(storedRows) do
         if row.grade ~= nil then
             local ok, decoded = pcall(json.decode, row.permissions)
-            storedByGrade[tostring(row.grade)] = ok and decoded or {}
+            storedByGrade[tostring(row.grade)] = ok and decoded or row.permissions or {}
         end
     end
 
@@ -163,9 +169,12 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
         gradeCount = gradeCount + 1
     end
     ps.debug('[getPermissionRoles] grade count', gradeCount)
+
     for gradeKeyString, gradeData in pairs(grades) do
         local isBoss = hasBossAccess or isBossGrade(gradeData)
+
         local permissions = storedByGrade[gradeKeyString]
+
         if not permissions or #permissions == 0 then
             permissions = getDefaultRolePermissions(jobName, gradeKeyString, isBoss)
         end
@@ -220,6 +229,7 @@ ps.registerCallback(resourceName .. ':server:getPermissionRoles', function(sourc
         label = job.label or 'Law Enforcement',
         roles = roles,
         permissions = getAllPermissions(),
+        permissionDefinitions = getPermissionDefinitions(),
     }
 end)
 

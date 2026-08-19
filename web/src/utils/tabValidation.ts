@@ -7,9 +7,11 @@ import {
 	containsForbiddenContent,
 	containsForbiddenNameChars,
 } from "../config/security";
+import { moduleService } from "../services/moduleService.svelte";
 
 function isValidTab(tab: string): tab is MDTTab {
-	return (SECURITY_CONFIG.ALLOWED_TABS as readonly string[]).includes(tab);
+	return (SECURITY_CONFIG.ALLOWED_TABS as readonly string[]).includes(tab)
+		|| Boolean(moduleService.getTabByName(tab));
 }
 
 function isValidInstanceId(id: string): id is ComponentId {

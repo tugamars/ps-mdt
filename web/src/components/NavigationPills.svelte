@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { MDT_TABS, NAV_GROUPS, DOJ_NAV_GROUPS, getTabsForJob, type MDTTab, type ComponentId } from "../constants";
+	import { MDT_TABS, NAV_GROUPS, DOJ_NAV_GROUPS, getTabsForJob, type MDTTab, type NavGroup } from "../constants";
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { JobType } from "../interfaces/IUser";
 	import type { AuthService } from "../services/authService.svelte";
+	import { moduleService, type ModuleTab } from "../services/moduleService.svelte";
 
 	interface Props {
 		tabService: ReturnType<typeof createTabService>;
@@ -18,7 +19,19 @@
 		return authService.hasRawPermission(key);
 	}
 
-	let visibleTabs = $derived(getTabsForJob(jobType).filter(t => !isTabHidden(t.name)));
+	function canAccessModuleTab(tab: ModuleTab): boolean {
+		if (tab.jobs?.length && !tab.jobs.includes(jobType)) return false;
+		if (!tab.permissions?.length) return true;
+		return Boolean(authService?.hasAnyPermission(...tab.permissions));
+	}
+
+	let visibleModuleTabs = $derived(
+		moduleService.moduleTabs.filter(tab => canAccessModuleTab(tab) && !isTabHidden(tab.name)),
+	);
+	let visibleTabs = $derived([
+		...getTabsForJob(jobType).filter(t => !isTabHidden(t.name)),
+		...visibleModuleTabs,
+	]);
 	let visibleTabNames = $derived(new Set(visibleTabs.map(t => t.name)));
 
 	let collapsed = $state(false);
@@ -42,11 +55,37 @@
 	}
 
 	function getTabData(tabName: string) {
-		return MDT_TABS.find(t => t.name === tabName);
+		return MDT_TABS.find(t => t.name === tabName)
+			?? visibleModuleTabs.find(t => t.name === tabName);
 	}
 
 	// Compute visible groups: filter out groups with no visible tabs
-	let navGroups = $derived(jobType === 'doj' ? DOJ_NAV_GROUPS : NAV_GROUPS);
+	let navGroups = $derived.by(() => {
+		const baseGroups = jobType === 'doj' ? DOJ_NAV_GROUPS : NAV_GROUPS;
+		const groups: NavGroup[] = baseGroups.map(group => ({ ...group, tabs: [...group.tabs] }));
+
+		for (const tab of visibleModuleTabs) {
+			const groupId = typeof tab.group === 'string'
+				? tab.group
+				: tab.group?.id || `module:${tab.moduleId}`;
+			let group = groups.find(item => item.id === groupId);
+			if (!group) {
+				group = {
+					id: groupId,
+					label: typeof tab.group === 'object' && tab.group.label
+						? tab.group.label
+						: tab.moduleName || groupId.replace(/^module:/, '').replace(/[._-]+/g, ' ').replace(/\b\w/g, character => character.toUpperCase()),
+					icon: typeof tab.group === 'object' && tab.group.icon ? tab.group.icon : 'extension',
+					tabs: [],
+				};
+				const bottomIndex = groups.findIndex(item => item.id === 'bottom');
+				groups.splice(bottomIndex < 0 ? groups.length : bottomIndex, 0, group);
+			}
+			(group.tabs as string[]).push(tab.name);
+		}
+
+		return groups;
+	});
 
 	let visibleGroups = $derived.by(() => {
 		return navGroups
@@ -66,7 +105,7 @@
 			return;
 		}
 		for (const group of navGroups) {
-			if (group.label && group.tabs.includes(activeTab)) {
+			if (group.label && group.tabs.some(tabName => tabName === activeTab)) {
 				if (collapsedGroups[group.id]) {
 					collapsedGroups[group.id] = false;
 				}

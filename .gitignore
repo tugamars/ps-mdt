@@ -6,3 +6,7 @@
 .vscode/
 .cursor/
 .idea/
+/modules/*/node_modules/
+/modules/**/node_modules/
+/modules/*/node_modules/.package-lock.json
+/modules/*/.package-lock.json

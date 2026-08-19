@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { createManagementService } from "@/services/managementService.svelte";
-	import { PERMISSION_CATEGORIES } from "@/constants/management";
+	import { PERMISSION_CATEGORIES, type PermissionCategory } from "@/constants/management";
 	import type { JobType } from "@/interfaces/IUser";
 
 	let { jobType = 'leo' }: { jobType?: JobType } = $props();
+	const mgmt = createManagementService();
 
 	/** Permission categories hidden for EMS */
 	const EMS_HIDDEN_CATEGORIES = ['bolos', 'vehicles', 'weapons', 'cases', 'evidence', 'warrants', 'charges'];
@@ -13,9 +14,37 @@
 	const DOJ_VISIBLE_CATEGORIES = ['citizens', 'cases', 'evidence', 'charges', 'management'];
 	const DOJ_HIDDEN_PERMISSIONS = ['management_bulletins', 'management_activity', 'management_tags', 'management_tracking', 'management_settings', 'citizens_edit_licenses'];
 
-	let visibleCategories = $derived(
-		jobType === 'ems'
-			? PERMISSION_CATEGORIES
+	let visibleCategories = $derived.by(() => {
+		const builtInCategoryKeys = new Set(PERMISSION_CATEGORIES.map(category => category.key));
+		const categories: PermissionCategory[] = PERMISSION_CATEGORIES.map(category => ({
+			...category,
+			permissions: [...category.permissions],
+		}));
+		const builtInPermissionKeys = new Set(categories.flatMap(category => category.permissions.map(permission => permission.key)));
+
+		for (const key of mgmt.permissions) {
+			if (builtInPermissionKeys.has(key) || key.startsWith('tab_hidden_')) continue;
+			const definition = mgmt.permissionDefinitions.find(item => item.id === key);
+			const categoryKey = definition?.category || (definition?.moduleId ? `module:${definition.moduleId}` : 'modules');
+			let category = categories.find(item => item.key === categoryKey);
+			if (!category) {
+				category = {
+					key: categoryKey,
+					label: definition?.moduleName || categoryKey.replace(/^module:/, '').replace(/[._-]+/g, ' ').replace(/\b\w/g, character => character.toUpperCase()),
+					icon: 'extension',
+					permissions: [],
+				};
+				categories.push(category);
+			}
+			category.permissions.push({
+				key,
+				label: definition?.label || key.replace(/[._-]+/g, ' ').replace(/\b\w/g, character => character.toUpperCase()),
+				description: definition?.description || `Permission registered by an MDT module (${key})`,
+			});
+		}
+
+		return jobType === 'ems'
+			? categories
 				.filter(c => !EMS_HIDDEN_CATEGORIES.includes(c.key))
 				.map(c => ({
 					...c,
@@ -23,17 +52,15 @@
 				}))
 				.filter(c => c.permissions.length > 0)
 			: jobType === 'doj'
-				? PERMISSION_CATEGORIES
-					.filter(c => DOJ_VISIBLE_CATEGORIES.includes(c.key))
+				? categories
+					.filter(c => !builtInCategoryKeys.has(c.key) || DOJ_VISIBLE_CATEGORIES.includes(c.key))
 					.map(c => ({
 						...c,
 						permissions: c.permissions.filter(p => !DOJ_HIDDEN_PERMISSIONS.includes(p.key))
 					}))
 					.filter(c => c.permissions.length > 0)
-				: PERMISSION_CATEGORIES
-	);
-
-	const mgmt = createManagementService();
+				: categories;
+	});
 
 	let selectedRole = $state<string | null>(null);
 
@@ -41,21 +68,21 @@
 
 	function categoryAllEnabled(catKey: string): boolean {
 		if (!currentRole) return false;
-		const cat = PERMISSION_CATEGORIES.find((c) => c.key === catKey);
+		const cat = visibleCategories.find((c) => c.key === catKey);
 		if (!cat) return false;
 		return cat.permissions.every((p) => mgmt.roleHasPermission(currentRole!.key, p.key));
 	}
 
 	function categoryNoneEnabled(catKey: string): boolean {
 		if (!currentRole) return true;
-		const cat = PERMISSION_CATEGORIES.find((c) => c.key === catKey);
+		const cat = visibleCategories.find((c) => c.key === catKey);
 		if (!cat) return true;
 		return cat.permissions.every((p) => !mgmt.roleHasPermission(currentRole!.key, p.key));
 	}
 
 	function toggleCategory(catKey: string) {
 		if (!currentRole || currentRole.isBoss) return;
-		const cat = PERMISSION_CATEGORIES.find((c) => c.key === catKey);
+		const cat = visibleCategories.find((c) => c.key === catKey);
 		if (!cat) return;
 		const keys = cat.permissions.map((p) => p.key);
 		if (categoryAllEnabled(catKey)) {
