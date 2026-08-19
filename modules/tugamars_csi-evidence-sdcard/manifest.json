@@ -1,0 +1,37 @@
+{
+  "id": "tugamars_csi-evidence-sdcard",
+  "name": "SD Card Import",
+  "author": "tugamars",
+  "version": "1.0.0",
+  "dependencies": [
+    {
+      "resource": "tugamars_csi-evidence",
+      "required": true
+    }
+  ],
+  "permissions": [
+    {
+      "id": "tugamars_csi-evidence-sdcard.view",
+      "label": "View SD Card Import",
+      "description": "Open the SD Card photo import module",
+      "category": "evidence"
+    },
+    {
+      "id": "tugamars_csi-evidence-sdcard.import",
+      "label": "Import SD Card Photos",
+      "description": "Import photos from SD cards into case evidence",
+      "category": "evidence"
+    }
+  ],
+  "tabs": [
+    {
+      "id": "sdcard-photos",
+      "name": "SD Card Photos",
+      "icon": "photo_library",
+      "component": "module_page",
+      "permissions": ["tugamars_csi-evidence-sdcard.view"],
+      "jobs": ["leo", "doj"],
+      "group": "records"
+    }
+  ]
+}
