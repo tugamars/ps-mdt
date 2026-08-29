@@ -144,30 +144,42 @@ ps.registerCallback(resourceName .. ':server:getAuditLogsByCase', function(sourc
     local offset = (page - 1) * max
 
     local totalRow = MySQL.single.await([[
-        SELECT COUNT(id) as total
-        FROM mdt_audit_logs
-        WHERE (entity_type = 'case' AND entity_id = ?)
-           OR (entity_type = 'evidence' AND entity_id IN (
-                SELECT id FROM mdt_evidence_items WHERE case_id = ?
-           ))
-           OR (entity_type = 'case_attachment' AND entity_id IN (
-                SELECT id FROM mdt_case_attachments WHERE case_id = ?
-           ))
-    ]], { tostring(caseId), caseId, caseId })
+        SELECT (
+            SELECT COUNT(id) FROM mdt_audit_logs
+            WHERE (entity_type = 'case' AND entity_id = ?)
+               OR (entity_type = 'evidence' AND entity_id IN (
+                    SELECT id FROM mdt_evidence_items WHERE case_id = ?
+               ))
+               OR (entity_type = 'case_attachment' AND entity_id IN (
+                    SELECT id FROM mdt_case_attachments WHERE case_id = ?
+               ))
+        ) + (
+            SELECT COUNT(id) FROM mdt_case_notes WHERE case_id = ?
+        ) as total
+    ]], { tostring(caseId), caseId, caseId, caseId })
 
     local rows = MySQL.query.await([[
         SELECT id, actor_citizenid, actor_name, action, entity_type, entity_id, details, created_at
-        FROM mdt_audit_logs
-        WHERE (entity_type = 'case' AND entity_id = ?)
-           OR (entity_type = 'evidence' AND entity_id IN (
-                SELECT id FROM mdt_evidence_items WHERE case_id = ?
-           ))
-           OR (entity_type = 'case_attachment' AND entity_id IN (
-                SELECT id FROM mdt_case_attachments WHERE case_id = ?
-           ))
-        ORDER BY id DESC
+        FROM (
+            SELECT CAST(id AS CHAR) AS id, actor_citizenid, actor_name, action, entity_type, entity_id, details, created_at
+            FROM mdt_audit_logs
+            WHERE (entity_type = 'case' AND entity_id = ?)
+               OR (entity_type = 'evidence' AND entity_id IN (
+                    SELECT id FROM mdt_evidence_items WHERE case_id = ?
+               ))
+               OR (entity_type = 'case_attachment' AND entity_id IN (
+                    SELECT id FROM mdt_case_attachments WHERE case_id = ?
+               ))
+            UNION ALL
+            SELECT CONCAT('note-', id) AS id, author_citizenid, author_name,
+                   'case_note_added' AS action, 'case_note' AS entity_type,
+                   CAST(case_id AS CHAR) AS entity_id, JSON_OBJECT('content', content) AS details, created_at
+            FROM mdt_case_notes
+            WHERE case_id = ?
+        ) AS case_timeline
+        ORDER BY created_at DESC, id DESC
         LIMIT ? OFFSET ?
-    ]], { tostring(caseId), caseId, caseId, max, offset })
+    ]], { tostring(caseId), caseId, caseId, caseId, max, offset })
 
     return {
         items = rows or {},

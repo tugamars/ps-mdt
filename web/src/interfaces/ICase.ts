@@ -15,6 +15,7 @@ export interface CaseRecord {
 	updated_at: string | number;
 	primary_officer_name?: string;
 	primary_officer_callsign?: string;
+	pinned?: boolean;
 }
 
 export interface CaseOfficerAssignment {
@@ -83,7 +84,11 @@ export interface CaseDetailResponse {
 		id: number;
 		title: string;
 		type: string;
+		author?: string;
+		authorplaintext?: string;
 		datecreated?: string | number;
+		dateupdated?: string | number;
+		tags?: string | null;
 	}>;
 	notes?: CaseNote[];
 }

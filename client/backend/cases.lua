@@ -37,6 +37,11 @@ RegisterNUICallback('getCase', function(data, cb)
     cb(result or { success = false })
 end)
 
+RegisterNUICallback('getCaseDepartments', function(_, cb)
+    if not MDTOpen then cb({}) return end
+    cb(ps.callback(resourceName .. ':server:getCaseDepartments') or {})
+end)
+
 RegisterNUICallback('linkReportToCase', function(data, cb)
     if not MDTOpen then
         cb({ success = false, message = 'MDT is not open' })

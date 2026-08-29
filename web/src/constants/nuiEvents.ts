@@ -165,6 +165,7 @@ export const NUI_EVENTS = {
 		CREATE_CASE: "createCase",
 		GET_CASES: "getCases",
 		GET_CASE: "getCase",
+		GET_CASE_DEPARTMENTS: "getCaseDepartments",
 		GET_CASE_EVIDENCE_PAGE: "getCaseEvidencePage",
 		UPDATE_CASE: "updateCase",
 		DELETE_CASE: "deleteCase",
