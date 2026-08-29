@@ -78,6 +78,10 @@ export function createCaseService() {
 		}
 	}
 
+	async function getCaseDepartments() {
+		return fetchNui<string[]>(NUI_EVENTS.CASE.GET_CASE_DEPARTMENTS, {}, []);
+	}
+
 	async function getCaseEvidencePage(caseId: number, page = 1, limit = 5) {
 		try {
 			const response = await fetchNui<{
@@ -439,6 +443,7 @@ export function createCaseService() {
 		},
 		loadCases,
 		getCase,
+		getCaseDepartments,
 		getCaseEvidencePage,
 		createCase,
 		linkReportToCase,

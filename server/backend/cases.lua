@@ -16,6 +16,14 @@ local function normalizeStatus(status)
     return 'open'
 end
 
+local function normalizePriority(priority)
+    local value = priority and tostring(priority):lower() or 'medium'
+    if value == 'low' or value == 'medium' or value == 'high' then
+        return value
+    end
+    return 'medium'
+end
+
 local function getOfficerDisplayName(src)
     local callsign = ps.getMetadata(src, 'callsign')
     local name = ps.getPlayerName(src) or 'Unknown'
@@ -33,7 +41,7 @@ ps.registerCallback(resourceName .. ':server:createCase', function(source, paylo
     local title = payload.title or 'Untitled Case'
     local summary = payload.summary or ''
     local status = normalizeStatus(payload.status)
-    local priority = payload.priority or 'medium'
+    local priority = normalizePriority(payload.priority)
     local department = payload.department or ps.getJobName(src) or 'police'
 
     local citizenid = ps.getIdentifier(src)
@@ -87,9 +95,21 @@ ps.registerCallback(resourceName .. ':server:getCases', function(source, page, f
         values[#values + 1] = normalizeStatus(filters.status)
     end
 
+    if filters.priority then
+        clauses[#clauses + 1] = 'mc.priority = ?'
+        values[#values + 1] = normalizePriority(filters.priority)
+    end
+
     if filters.department then
-        clauses[#clauses + 1] = 'assigned_department = ?'
+        clauses[#clauses + 1] = 'mc.assigned_department = ?'
         values[#values + 1] = filters.department
+    end
+
+    if filters.myCases then
+        local citizenid = ps.getIdentifier(src)
+        if not citizenid then return { cases = {}, hasMore = false } end
+        clauses[#clauses + 1] = 'EXISTS (SELECT 1 FROM mdt_case_officers assigned WHERE assigned.case_id = mc.id AND assigned.citizenid = ?)'
+        values[#values + 1] = citizenid
     end
 
     local whereClause = ''
@@ -118,6 +138,16 @@ ps.registerCallback(resourceName .. ':server:getCases', function(source, page, f
         cases = rows or {},
         hasMore = rows and #rows >= limit or false
     }
+end)
+
+ps.registerCallback(resourceName .. ':server:getCaseDepartments', function(source)
+    if not CheckAuth(source) then return {} end
+    local rows = MySQL.query.await([[SELECT DISTINCT assigned_department AS department
+        FROM mdt_cases WHERE assigned_department IS NOT NULL AND assigned_department <> ''
+        ORDER BY assigned_department ASC]])
+    local departments = {}
+    for _, row in ipairs(rows or {}) do departments[#departments + 1] = row.department end
+    return departments
 end)
 
 ps.registerCallback(resourceName .. ':server:getCase', function(source, caseId)
@@ -151,10 +181,13 @@ ps.registerCallback(resourceName .. ':server:getCase', function(source, caseId)
     ]], { caseId })
 
     local reports = MySQL.query.await([[
-        SELECT mr.id, mr.title, mr.type, mr.datecreated
+        SELECT mr.id, mr.title, mr.type, mr.author, mr.authorplaintext,
+               mr.datecreated, mr.dateupdated, GROUP_CONCAT(DISTINCT mrt.tag ORDER BY mrt.tag SEPARATOR ',') AS tags
         FROM mdt_case_reports mcr
         INNER JOIN mdt_reports mr ON mr.id = mcr.report_id
+        LEFT JOIN mdt_reports_tags mrt ON mrt.reportid = mr.id
         WHERE mcr.case_id = ?
+        GROUP BY mr.id, mr.title, mr.type, mr.author, mr.authorplaintext, mr.datecreated, mr.dateupdated
         ORDER BY mr.datecreated DESC
     ]], { caseId })
 
@@ -316,7 +349,7 @@ ps.registerCallback(resourceName .. ':server:updateCase', function(source, caseI
 
     if priority then
         updates[#updates + 1] = 'priority = ?'
-        values[#values + 1] = priority
+        values[#values + 1] = normalizePriority(priority)
     end
 
     if payload.department then

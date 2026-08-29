@@ -6,12 +6,12 @@
 	import { fileToBase64, formatBytes } from "../services/uploadService";
 	import PersonSearchModal from "../components/report-editor/PersonSearchModal.svelte";
 	import Pagination from "../components/Pagination.svelte";
+	import CaseFile from "../components/cases/CaseFile.svelte";
 	import type { createTabService } from "../services/tabService.svelte";
 	import type { MDTTab } from "../constants";
 	import type {
 		CaseAttachment,
 		CaseDetailResponse,
-		CaseNote,
 		CaseOfficerAssignment,
 		CaseRecord,
 		CaseStatus,
@@ -34,6 +34,9 @@
 	const searchService = createSearchService();
 
 	let cases = $state<CaseRecord[]>([]);
+	let pinnedCases = $state<CaseRecord[]>([]);
+	let departments = $state<string[]>([]);
+	const PINNED_CASES_STORAGE_KEY = "ps-mdt:pinned-cases";
 	let selectedCase = $state<CaseDetailResponse | null>(null);
 	let isLoading = $state(false);
 	let searchQuery = $state("");
@@ -55,6 +58,7 @@
 		status: "" as CaseStatus | "",
 		priority: "" as CasePriority | "",
 		department: "",
+		myCases: false,
 	});
 	let attachmentDraft = $state({
 		type: "document" as CaseAttachment["type"],
@@ -65,6 +69,7 @@
 	let attachmentError = $state("");
 	let noteContent = $state("");
 	let noteSubmitting = $state(false);
+	let caseFileTab = $state("overview");
 	const maxUploadBytes = 5 * 1024 * 1024;
 	const allowedAttachmentTypes = [
 		"image/jpeg",
@@ -85,6 +90,7 @@
 	});
 
 	onMount(async () => {
+		loadPinnedCasesFromStorage();
 		if (isEnvBrowser()) {
 			cases = [
 				{ id: 1, case_number: 'CASE-001', title: 'Fleeca Bank Armed Robbery', summary: 'Multiple suspects robbed Fleeca Bank on Hawick Ave', status: 'open', priority: 'high', assigned_department: 'Detectives', created_by: 'DET001', created_by_name: 'Det. Williams', created_at: '2026-03-15T10:30:00Z', updated_at: '2026-03-18T14:00:00Z', primary_officer_name: 'Det. Williams', primary_officer_callsign: '201' },
@@ -96,8 +102,28 @@
 			isLoading = false;
 			return;
 		}
-		await loadCases();
+		await Promise.all([loadCases(), loadDepartments()]);
 	});
+
+	async function loadDepartments() {
+		departments = await caseService.getCaseDepartments();
+	}
+
+	function loadPinnedCasesFromStorage() {
+		try {
+			const stored = localStorage.getItem(PINNED_CASES_STORAGE_KEY);
+			const parsed = stored ? JSON.parse(stored) : [];
+			pinnedCases = Array.isArray(parsed)
+				? parsed.filter((item): item is CaseRecord => item && typeof item.id === "number").slice(0, 4)
+				: [];
+		} catch {
+			pinnedCases = [];
+		}
+	}
+
+	function savePinnedCases() {
+		localStorage.setItem(PINNED_CASES_STORAGE_KEY, JSON.stringify(pinnedCases));
+	}
 
 	async function loadCases() {
 		isLoading = true;
@@ -111,15 +137,35 @@
 		if (filters.department.trim()) {
 			activeFilters.department = filters.department.trim();
 		}
+		if (filters.myCases) activeFilters.myCases = true;
 		await caseService.loadCases(1, activeFilters);
 		cases = caseService.state.cases;
 		isLoading = false;
 	}
 
+	async function handleTogglePin() {
+		if (!selectedCase) return;
+		const caseId = selectedCase.case.id;
+		if (selectedCase.case.pinned) {
+			pinnedCases = pinnedCases.filter((item) => item.id !== caseId);
+			selectedCase.case.pinned = false;
+		} else {
+			if (pinnedCases.length >= 4) {
+				globalNotifications.error("You can pin up to 4 cases");
+				return;
+			}
+			selectedCase.case.pinned = true;
+			pinnedCases = [{ ...selectedCase.case }, ...pinnedCases];
+		}
+		savePinnedCases();
+	}
+
 	async function selectCase(caseId: number) {
 		isLoading = true;
 		const data = await caseService.getCase(caseId);
+		if (data) data.case.pinned = pinnedCases.some((item) => item.id === caseId);
 		selectedCase = data;
+		caseFileTab = "overview";
 		showCaseView = true;
 		const auditResponse = data
 			? await caseService.getCaseAuditLogs(caseId, 1, auditPageSize)
@@ -465,8 +511,8 @@
 	let auditTotal = $state(0);
 	let pagedEvidence = $state<any[]>([]);
 	let pagedAuditLogs = $state<any[]>([]);
-	const pageSize = 5;
-	const auditPageSize = 10;
+	const pageSize = 100;
+	const auditPageSize = 1000;
 
 	async function handleAddEvidence() {
 		if (!selectedCase || !evidenceDraft.title.trim()) return;
@@ -679,383 +725,37 @@
 			</div>
 
 		{:else if selectedCase}
-			<!-- ==================== CASE DETAIL VIEW ==================== -->
-			<div class="detail-scroll">
-				<!-- Info Section -->
-				<div class="section">
-					<div class="section-title">Case Information</div>
-					<p class="summary-text">{selectedCase.case.summary || "No summary"}</p>
-					<div class="field-row">
-						<div class="field-group">
-							<span class="field-label">Status</span>
-							<select class="form-select" value={selectedCase.case.status} onchange={(event) => handleUpdateCase({ status: (event.target as HTMLSelectElement).value })}>
-								{#each statusOptions as option}
-									<option value={option}>{formatStatus(option)}</option>
-								{/each}
-							</select>
-						</div>
-						<div class="field-group">
-							<span class="field-label">Priority</span>
-							<select class="form-select" value={selectedCase.case.priority} onchange={(event) => handleUpdateCase({ priority: (event.target as HTMLSelectElement).value })}>
-								{#each priorityOptions as option}
-									<option value={option}>{formatStatus(option)}</option>
-								{/each}
-							</select>
-						</div>
-						<div class="field-group">
-							<span class="field-label">Department</span>
-							<input class="form-input" value={selectedCase.case.assigned_department || ""} onchange={(event) => handleUpdateCase({ department: (event.target as HTMLInputElement).value })} />
-						</div>
-						<div class="field-group field-group-actions">
-							<button class="danger-btn" onclick={handleDeleteCase}>
-								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-								Delete
-							</button>
-						</div>
-					</div>
-				</div>
-
-				<!-- Officers Section -->
-				<div class="section">
-					<div class="section-header">
-						<div class="section-title" style="margin-bottom:0;">Officers</div>
-						<div class="inline-controls">
-							<select bind:value={officerRole} class="form-select-sm">
-								<option value="primary">Primary</option>
-								<option value="assisting">Assisting</option>
-								<option value="supervisor">Supervisor</option>
-							</select>
-							<button class="action-btn" onclick={() => (showOfficerSearch = true)}>
-								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-								Add Officer
-							</button>
-						</div>
-					</div>
-					{#if selectedCase.officers.length === 0}
-						<p class="muted-text">No officers assigned.</p>
-					{:else}
-						<div class="chip-list">
-							{#each selectedCase.officers as officer}
-								<div class="chip">
-									<div class="chip-info">
-										<span class="chip-name">
-											{officer.callsign ? officer.callsign + " " : ""}
-											{officer.fullname || officer.citizenid}
-										</span>
-										<span class="chip-meta">
-											{officer.rank || "Officer"}
-											{officer.badge_number ? " - " + officer.badge_number : ""}
-										</span>
-									</div>
-									<span class="chip-role">{officer.role}</span>
-									<button class="chip-remove" onclick={() => handleRemoveOfficer(officer.citizenid)}>
-										<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-
-				<!-- Linked Reports Section -->
-				<div class="section">
-					<div class="section-header">
-						<div class="section-title" style="margin-bottom:0;">Linked Reports</div>
-						<div class="inline-controls">
-							<input class="form-input-sm" placeholder="Report ID" bind:value={reportLinkId} />
-							<button class="action-btn" onclick={handleLinkReport}>
-								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-								Link
-							</button>
-						</div>
-					</div>
-					{#if (selectedCase as any).reports && (selectedCase as any).reports.length > 0}
-						<div class="item-list">
-							{#each (selectedCase as any).reports as report}
-								<div class="list-item">
-									<div class="list-item-info">
-										<!-- svelte-ignore a11y_click_events_have_key_events -->
-										<strong class="nav-link" role="button" tabindex="-1" onclick={() => navigateTo("Reports")}>#{report.id}</strong>
-										<span>{report.title}</span>
-									</div>
-									<button class="remove-btn" onclick={() => handleUnlinkReport(report.id)}>
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-									</button>
-								</div>
-							{/each}
-						</div>
-					{:else}
-						<p class="muted-text">No linked reports.</p>
-					{/if}
-				</div>
-
-				<!-- Notes Section -->
-				<div class="section">
-					<div class="section-title">Notes</div>
-					<div class="note-input-row">
-						<textarea class="form-textarea" placeholder="Add a note..." bind:value={noteContent} rows="2"></textarea>
-						<button class="action-btn" disabled={!noteContent.trim() || noteSubmitting} onclick={handleAddNote}>
-							{noteSubmitting ? "Saving..." : "Add Note"}
-						</button>
-					</div>
-					{#if selectedCase.notes && selectedCase.notes.length > 0}
-						<div class="notes-list">
-							{#each selectedCase.notes as note}
-								<div class="note-item">
-									<div class="note-header">
-										<span class="note-author">{note.author_name || "Unknown"}</span>
-										<span class="note-date">{note.created_at ? new Date(note.created_at).toLocaleString() : ""}</span>
-										<button class="remove-btn" onclick={() => handleDeleteNote(note.id)}>
-											<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-										</button>
-									</div>
-									<p class="note-content">{note.content}</p>
-								</div>
-							{/each}
-						</div>
-					{:else}
-						<p class="muted-text">No notes yet.</p>
-					{/if}
-				</div>
-
-				<!-- Attachments Section -->
-				<div class="section">
-					<div class="section-title">Attachments</div>
-					<div class="attachment-form">
-						<select bind:value={attachmentDraft.type} class="form-select">
-							<option value="photo">Photo</option>
-							<option value="document">Document</option>
-							<option value="other">Other</option>
-						</select>
-						<input class="form-input" placeholder="URL" bind:value={attachmentDraft.url} />
-						<input class="form-input" placeholder="Label" bind:value={attachmentDraft.label} />
-						<button class="action-btn" onclick={handleAddAttachment}>Add</button>
-					</div>
-					<div class="upload-row">
-						<input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" class="file-input" onchange={(event) => {
-							const input = event.target as HTMLInputElement;
-							attachmentFile = input.files && input.files[0] ? input.files[0] : null;
-						}} />
-						{#if attachmentFile}
-							<span class="muted-text">{attachmentFile.name} ({formatBytes(attachmentFile.size)})</span>
-						{/if}
-						<button class="primary-btn" onclick={handleUploadAttachment}>Upload</button>
-					</div>
-					{#if attachmentError}
-						<p class="error-text">{attachmentError}</p>
-					{/if}
-					{#if selectedCase.attachments.length === 0}
-						<p class="muted-text">No attachments yet.</p>
-					{:else}
-						<div class="item-list">
-							{#each selectedCase.attachments as attachment}
-								<div class="list-item">
-									<div class="list-item-info">
-										<strong>{attachment.label || attachment.type}</strong>
-										<span>{attachment.url}</span>
-									</div>
-									<button class="remove-btn" onclick={() => handleRemoveAttachment(attachment.id)}>
-										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-
-				<!-- Evidence Section -->
-				<div class="section">
-					<div class="section-title">Evidence</div>
-					<div class="evidence-form-grid">
-						<div class="field-group">
-							<span class="field-label">Title</span>
-							<input class="form-input" bind:value={evidenceDraft.title} />
-						</div>
-						<div class="field-group">
-							<span class="field-label">Type</span>
-							<input class="form-input" bind:value={evidenceDraft.type} />
-						</div>
-						<div class="field-group">
-							<span class="field-label">Serial</span>
-							<input class="form-input" bind:value={evidenceDraft.serial} />
-						</div>
-						<div class="field-group">
-							<span class="field-label">Location</span>
-							<input class="form-input" bind:value={evidenceDraft.location} />
-						</div>
-						<div class="field-group">
-							<span class="field-label">Stash ID</span>
-							<input class="form-input" bind:value={evidenceDraft.stashId} />
-						</div>
-						<div class="field-group">
-							<span class="field-label">Notes</span>
-							<textarea rows="2" class="form-textarea" bind:value={evidenceDraft.notes}></textarea>
-						</div>
-					</div>
-					<div class="evidence-actions-row">
-						<label class="checkbox-label">
-							<input type="checkbox" bind:checked={evidenceDraft.stored} />
-							Stored
-						</label>
-						<button class="primary-btn" onclick={handleAddEvidence}>Add Evidence</button>
-					</div>
-					{#if evidenceError}
-						<p class="error-text">{evidenceError}</p>
-					{/if}
-					{#if evidenceTotal === 0}
-						<p class="muted-text">No evidence logged.</p>
-					{:else}
-						<div class="item-list">
-							{#each pagedEvidence as item}
-								<div class="list-item">
-									<button class="evidence-select" onclick={() => handleSelectEvidence(item.id)}>
-										<strong>{item.title}</strong>
-										<span>{item.type}</span>
-										<span>{item.serial || ""}</span>
-								</button>
-								<!-- svelte-ignore a11y_click_events_have_key_events -->
-								<span class="nav-link nav-link-sm" role="button" tabindex="-1" onclick={() => navigateTo("Evidence")}>View in Evidence</span>
-									<div class="evidence-actions">
-										<button class="action-btn" onclick={() => handleUpdateEvidence(item.id, { stored: !item.stored })}>
-											{item.stored ? "Unstore" : "Store"}
-										</button>
-										<button class="remove-btn" onclick={() => handleDeleteEvidence(item.id)}>
-											<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-											Remove
-										</button>
-									</div>
-								</div>
-							{/each}
-						</div>
-						<div class="pagination">
-							<button class="page-btn" disabled={evidencePage === 1} onclick={async () => {
-								evidencePage = Math.max(1, evidencePage - 1);
-								if (selectedCase) {
-									const response = await caseService.getCaseEvidencePage(selectedCase.case.id, evidencePage, pageSize);
-									if (response.success && response.data) {
-										pagedEvidence = response.data.items || [];
-										evidenceTotal = response.data.total || 0;
-									}
-								}
-							}}>Prev</button>
-							<span class="page-info">Page {evidencePage} / {evidenceTotalPages()}</span>
-							<button class="page-btn" disabled={evidencePage >= evidenceTotalPages()} onclick={async () => {
-								evidencePage = Math.min(evidenceTotalPages(), evidencePage + 1);
-								if (selectedCase) {
-									const response = await caseService.getCaseEvidencePage(selectedCase.case.id, evidencePage, pageSize);
-									if (response.success && response.data) {
-										pagedEvidence = response.data.items || [];
-										evidenceTotal = response.data.total || 0;
-									}
-								}
-							}}>Next</button>
-						</div>
-					{/if}
-				</div>
-
-				<!-- Evidence Custody (when evidence selected) -->
-				{#if selectedEvidenceId}
-					<div class="section">
-						<div class="section-title">Evidence Custody</div>
-						<div class="transfer-row">
-							<input class="form-input" placeholder="Transfer to Citizen ID" bind:value={transferCitizenId} />
-							<input class="form-input" placeholder="Transfer notes" bind:value={transferNotes} />
-							<button class="action-btn" onclick={() => {
-								handleTransferEvidence(transferCitizenId, transferNotes);
-								transferCitizenId = "";
-								transferNotes = "";
-							}}>Transfer</button>
-						</div>
-						<div class="upload-row">
-							<input type="file" accept=".jpg,.jpeg,.png,.webp" class="file-input" onchange={(event) => {
-								const input = event.target as HTMLInputElement;
-								evidenceImageFile = input.files && input.files[0] ? input.files[0] : null;
-							}} />
-							<input class="form-input" placeholder="Image label" bind:value={evidenceImageLabel} />
-							<button class="primary-btn" onclick={handleUploadEvidenceImage}>Upload Image</button>
-						</div>
-						{#if pagedEvidence.length > 0}
-							{#each pagedEvidence.filter((e) => e.id === selectedEvidenceId) as item}
-								{#if item.images && item.images.length > 0}
-									<div class="item-list">
-										{#each item.images as image}
-											<div class="list-item">
-												<div class="list-item-info">
-													<strong>{image.label || "Evidence Image"}</strong>
-													<span>{image.url}</span>
-												</div>
-												<button class="remove-btn" onclick={() => handleRemoveEvidenceImage(image.id)}>
-													<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-												</button>
-											</div>
-										{/each}
-									</div>
-								{/if}
-							{/each}
-						{/if}
-						{#if evidenceCustody.length === 0}
-							<p class="muted-text">No custody updates yet.</p>
-						{:else}
-							<div class="custody-list">
-								{#each evidenceCustody as entry}
-									<div class="custody-item">
-										<span>{entry.action}</span>
-										<span>{entry.from_citizenid || ""}{entry.to_citizenid ? " -> " + entry.to_citizenid : ""}</span>
-										<span>{entry.notes || ""}</span>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				<!-- Audit Log Section -->
-				<div class="section">
-					<div class="section-title">Audit Log</div>
-					{#if auditLogs.length === 0}
-						<p class="muted-text">No audit entries found.</p>
-					{:else}
-						<div class="audit-list">
-							{#each pagedAuditLogs as entry}
-								<div class="audit-item">
-									<div>
-										<strong>{formatAuditAction(entry.action)}</strong>
-										<span>{entry.actor_name || entry.actor_citizenid || "System"}</span>
-									</div>
-									<div class="audit-meta">
-										<span>{entry.entity_type} #{entry.entity_id}</span>
-									</div>
-									<div class="audit-details">
-										{formatAuditDetails(entry.details)}
-									</div>
-								</div>
-							{/each}
-						</div>
-						<div class="pagination">
-							<button class="page-btn" disabled={auditPage === 1} onclick={async () => {
-								auditPage = Math.max(1, auditPage - 1);
-								if (selectedCase) {
-									const response = await caseService.getCaseAuditLogs(selectedCase.case.id, auditPage, auditPageSize);
-									auditLogs = response.items || [];
-									auditTotal = response.total || 0;
-									pagedAuditLogs = auditLogs;
-								}
-							}}>Prev</button>
-							<span class="page-info">Page {auditPage} / {auditTotalPages()}</span>
-							<button class="page-btn" disabled={auditPage >= auditTotalPages()} onclick={async () => {
-								auditPage = Math.min(auditTotalPages(), auditPage + 1);
-								if (selectedCase) {
-									const response = await caseService.getCaseAuditLogs(selectedCase.case.id, auditPage, auditPageSize);
-									auditLogs = response.items || [];
-									auditTotal = response.total || 0;
-									pagedAuditLogs = auditLogs;
-								}
-							}}>Next</button>
-						</div>
-					{/if}
-				</div>
-			</div>
-
+			<CaseFile
+				data={selectedCase}
+				bind:tab={caseFileTab}
+				auditLogs={auditLogs}
+				pagedEvidence={pagedEvidence}
+				evidenceTotal={evidenceTotal}
+				onUpdateCase={handleUpdateCase}
+				onTogglePin={handleTogglePin}
+				onDeleteCase={handleDeleteCase}
+				onAddNote={handleAddNote}
+				onDeleteNote={handleDeleteNote}
+				onLinkReport={handleLinkReport}
+				onUnlinkReport={handleUnlinkReport}
+				onAssignOfficer={() => (showOfficerSearch = true)}
+				onRemoveOfficer={handleRemoveOfficer}
+				onAddAttachment={handleAddAttachment}
+				onUploadAttachment={handleUploadAttachment}
+				onRemoveAttachment={handleRemoveAttachment}
+				onAddEvidence={handleAddEvidence}
+				onUpdateEvidence={handleUpdateEvidence}
+				onDeleteEvidence={handleDeleteEvidence}
+				bind:noteContent
+				bind:noteSubmitting
+				bind:reportLinkId
+				bind:officerRole
+				bind:attachmentDraft
+				bind:attachmentFile
+				bind:attachmentError
+				bind:evidenceDraft
+				bind:evidenceError
+			/>
 		{:else}
 			<div class="section empty-detail">
 				<h3>Select a case to view details</h3>
@@ -1082,6 +782,11 @@
 					<option value={option}>{formatStatus(option)}</option>
 				{/each}
 			</select>
+			<select class="form-select-sm" bind:value={filters.department} onchange={loadCases}>
+				<option value="">All Departments</option>
+				{#each departments as department}<option value={department}>{department}</option>{/each}
+			</select>
+			<button class:active-filter={filters.myCases} class="filter-btn" onclick={() => { filters.myCases = !filters.myCases; loadCases(); }}>My Cases</button>
 			<div style="flex:1;"></div>
 			<button class="action-btn" onclick={openCreatePanel}>
 				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -1094,6 +799,19 @@
 		</div>
 
 		<div class="list-panel">
+			{#if pinnedCases.length > 0}
+				<section class="pinned-cases" aria-label="Pinned cases">
+					<div class="pinned-header"><span>Pinned Cases</span><small>{pinnedCases.length}/4</small></div>
+					<div class="pinned-grid">
+						{#each pinnedCases as item}
+							<button class="pinned-card" onclick={() => selectCase(item.id)}>
+								<span class="pinned-number">{item.case_number}</span><strong>{item.title}</strong>
+								<span>{item.assigned_department || "No department"} · {formatStatus(item.status)}</span>
+							</button>
+						{/each}
+					</div>
+				</section>
+			{/if}
 			{#if isLoading && cases.length === 0}
 				<div class="center-state">
 					<div class="loading-spinner"></div>
@@ -1414,6 +1132,41 @@
 		flex-direction: column;
 		overflow: hidden;
 	}
+
+	.pinned-cases {
+		padding: 12px 16px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+		background: rgba(255, 255, 255, 0.015);
+	}
+
+	.pinned-header {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 8px;
+		color: rgba(255, 255, 255, 0.58);
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.6px;
+	}
+
+	.pinned-header small { color: rgba(255, 255, 255, 0.35); font-size: 10px; }
+	.pinned-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+	.pinned-card {
+		min-width: 0; text-align: left; padding: 9px; border-radius: 5px;
+		background: rgba(var(--accent-rgb), 0.06); border: 1px solid rgba(var(--accent-rgb), 0.18);
+		cursor: pointer; color: inherit;
+	}
+	.pinned-card:hover { background: rgba(var(--accent-rgb), 0.11); }
+	.pinned-card strong, .pinned-card span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.pinned-card strong { margin: 4px 0; color: rgba(255, 255, 255, 0.82); font-size: 11px; }
+	.pinned-card span { color: rgba(255, 255, 255, 0.42); font-size: 9px; }
+	.pinned-card .pinned-number { color: rgb(var(--accent-text-rgb)); font-weight: 600; }
+	.filter-btn {
+		padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 10px;
+		color: rgba(255, 255, 255, 0.55); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.09);
+	}
+	.filter-btn.active-filter { color: rgb(var(--accent-text-rgb)); background: rgba(var(--accent-rgb), 0.13); border-color: rgba(var(--accent-rgb), 0.3); }
 
 	.table-header {
 		display: grid;
@@ -2180,6 +1933,7 @@
 	}
 
 	@media (max-width: 768px) {
+		.pinned-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 		.table-header,
 		.table-row {
 			grid-template-columns: 2fr 1fr 0.8fr 0.8fr;
