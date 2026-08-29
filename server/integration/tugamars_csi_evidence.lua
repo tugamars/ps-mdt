@@ -10,6 +10,8 @@ local validActions = {
     viewed = true
 }
 
+local pendingCustodyByCsiId = {}
+
 local function trim(value)
     return tostring(value or ''):gsub('^%s+', ''):gsub('%s+$', '')
 end
@@ -108,8 +110,8 @@ local function mapCustodyAction(action)
     action = action:lower():gsub('%s+', '_')
     local aliases = {
         log = 'collected',
-        logged = 'collected',
-        logged_in = 'collected',
+        logged = 'stored',
+        logged_in = 'stored',
         collect = 'collected',
         collected = 'collected',
         transfer = 'transferred',
@@ -128,6 +130,14 @@ local function mapCustodyAction(action)
 
     action = aliases[action] or action
     return validActions[action] and action or 'updated'
+end
+
+local function isLoggedCustodyAction(action)
+    action = valueOrNil(action)
+    if not action then return false end
+
+    action = action:lower():gsub('%s+', '_')
+    return action == 'log' or action == 'logged' or action == 'logged_in'
 end
 
 local function ensureMapTable()
@@ -153,6 +163,10 @@ local function getMappedEvidenceId(csiEvidenceId)
     )
 
     return row and tonumber(row.mdt_evidence_id) or nil
+end
+
+local function getPendingCustodyKey(csiEvidenceId)
+    return valueOrNil(csiEvidenceId)
 end
 
 local function saveEvidenceMap(csiEvidenceId, mdtEvidenceId)
@@ -187,6 +201,51 @@ local function buildNotes(csiEvidenceId, data)
     return table.concat(parts, '\n')
 end
 
+local function buildRegistrationCustodyNotes(data)
+    data = type(data) == 'table' and data or {}
+
+    local parts = {}
+    local notes = valueOrNil(firstValue(data, { 'notes' }))
+    local box = valueOrNil(firstValue(data, {
+        'boxId'
+    }))
+    local stash = valueOrNil(firstValue(data, {
+        'stashName',
+    }))
+
+    if notes then parts[#parts + 1] = notes end
+    if box then parts[#parts + 1] = ('Box Number: %s.'):format(box) end
+
+    return table.concat(parts, '\n ')
+end
+
+local function applyPendingLoggedCustodyNotes(csiEvidenceId, data)
+    local key = getPendingCustodyKey(csiEvidenceId)
+    local pendingRows = key and pendingCustodyByCsiId[key] or nil
+    if not pendingRows or #pendingRows == 0 then return data end
+
+    data = type(data) == 'table' and data or {}
+
+    local pendingNotes = {}
+    for _, pending in ipairs(pendingRows) do
+        local custody = pending.custody or {}
+        if isLoggedCustodyAction(custody.action) and valueOrNil(custody.notes) then
+            pendingNotes[#pendingNotes + 1] = tostring(custody.notes)
+        end
+    end
+
+    if #pendingNotes == 0 then return data end
+
+    local existingNotes = valueOrNil(data.custodyNotes or data.custody_notes or data.logNotes or data.log_notes)
+    local mergedNotes = table.concat(pendingNotes, '\n')
+    if existingNotes then
+        mergedNotes = ('%s\n%s'):format(existingNotes, mergedNotes)
+    end
+
+    data.custodyNotes = mergedNotes
+    return data
+end
+
 local function buildEvidencePayload(csiEvidenceId, data, actorSource)
     data = type(data) == 'table' and data or {}
 
@@ -196,7 +255,7 @@ local function buildEvidencePayload(csiEvidenceId, data, actorSource)
     local evidenceType = firstValue(data, { 'type', 'category', 'evidenceType', 'itemType' }) or 'CSI Evidence'
     local serial = firstValue(data, { 'serial', 'serialNumber', 'fingerprint', 'dna', 'plate' }) or tostring(csiEvidenceId)
     local location = stringifyCoords(firstValue(data, { 'location', 'coords', 'coordinates' }))
-    local stashId = firstValue(data, { 'stashId', 'stash_id', 'stash', 'boxId', 'box_id', 'evidenceBox', 'evidence_box' })
+    local stashId = firstValue(data, { 'stashName' })
     local actorCitizenId = actorSource and ps.getIdentifier(actorSource) or nil
     local loggedBy = getCitizenId(firstValue(data, { 'loggedBy', 'logged_by', 'createdBy', 'created_by', 'performedBy', 'performed_by' }))
 
@@ -211,7 +270,7 @@ local function buildEvidencePayload(csiEvidenceId, data, actorSource)
         createdBy = loggedBy or actorCitizenId,
         lastHolder = loggedBy or actorCitizenId,
         custodyCitizenId = loggedBy or actorCitizenId,
-        custodyNotes = ('Logged from %s'):format(csiResourceName)
+        custodyNotes = buildRegistrationCustodyNotes(data)
     }
 end
 
@@ -219,6 +278,7 @@ local function createMappedEvidence(src, csiEvidenceId, data)
     local existingMdtEvidenceId = getMappedEvidenceId(csiEvidenceId)
     if existingMdtEvidenceId then return existingMdtEvidenceId end
 
+    data = applyPendingLoggedCustodyNotes(csiEvidenceId, data)
     local actorSource = getActorSource(src, data)
     local result = exports[resourceName]:CreateEvidence(buildEvidencePayload(csiEvidenceId, data, actorSource), actorSource)
     if not result or not result.success or not result.id then
@@ -255,6 +315,87 @@ local function normalizeCustodyRow(row, fallbackEvidenceId)
     }
 end
 
+local function mergeLoggedCustodyIntoCreation(mdtEvidenceId, custody)
+    mdtEvidenceId = tonumber(mdtEvidenceId)
+    if not mdtEvidenceId or not isLoggedCustodyAction(custody.action) then return false end
+
+    local notes = valueOrNil(custody.notes)
+    if not notes then return true end
+
+    local creationRow = MySQL.single.await([[
+        SELECT id, notes
+        FROM mdt_evidence_custody
+        WHERE evidence_id = ?
+        ORDER BY id ASC
+        LIMIT 1
+    ]], { mdtEvidenceId })
+
+    if not creationRow or not creationRow.id then return true end
+
+    local existingNotes = valueOrNil(creationRow.notes)
+    if existingNotes and existingNotes:find(notes, 1, true) then return true end
+
+    local mergedNotes = notes
+    if existingNotes then
+        mergedNotes = ('%s\n%s'):format(existingNotes, notes)
+    end
+
+    MySQL.update.await('UPDATE mdt_evidence_custody SET notes = ? WHERE id = ?', { mergedNotes, creationRow.id })
+    return true
+end
+
+local function sendCustodyToMdt(src, mdtEvidenceId, custody)
+    if not mdtEvidenceId then return false end
+    if isLoggedCustodyAction(custody.action) then
+        return mergeLoggedCustodyIntoCreation(mdtEvidenceId, custody)
+    end
+
+    local action = mapCustodyAction(custody.action)
+
+    local actorSource = getActorSource(src, { performedBy = custody.performedBy })
+    local performedCitizenId = getCitizenId(custody.performedBy) or (actorSource and ps.getIdentifier(actorSource)) or nil
+    local notes = valueOrNil(custody.notes) or ('Evidence %s.'):format(action)
+
+    if valueOrNil(custody.timestamp) then
+        notes = ('%s\nCSI timestamp: %s'):format(notes, tostring(custody.timestamp))
+    end
+
+    exports[resourceName]:UpdateEvidenceCustody({
+        evidenceId = mdtEvidenceId,
+        action = action,
+        fromCitizenId = custody.fromCitizenId,
+        toCitizenId = custody.toCitizenId or (action ~= 'released' and performedCitizenId or nil),
+        notes = notes
+    }, actorSource)
+
+    return true
+end
+
+local function queuePendingCustody(src, csiEvidenceId, custody)
+    local key = getPendingCustodyKey(csiEvidenceId)
+    if not key then return end
+
+    pendingCustodyByCsiId[key] = pendingCustodyByCsiId[key] or {}
+    pendingCustodyByCsiId[key][#pendingCustodyByCsiId[key] + 1] = {
+        src = src,
+        custody = custody
+    }
+end
+
+local function flushPendingCustody(csiEvidenceId, mdtEvidenceId)
+    local key = getPendingCustodyKey(csiEvidenceId)
+    mdtEvidenceId = tonumber(mdtEvidenceId)
+    if not key or not mdtEvidenceId then return end
+
+    local pendingRows = pendingCustodyByCsiId[key]
+    if not pendingRows or #pendingRows == 0 then return end
+
+    pendingCustodyByCsiId[key] = nil
+    for _, pending in ipairs(pendingRows) do
+        sendCustodyToMdt(pending.src, mdtEvidenceId, pending.custody)
+    end
+end
+
 local function updateMappedCustody(src, fallbackEvidenceId, rows)
     if type(rows) ~= 'table' then rows = { rows } end
     if rows[1] == nil and (rows.action or rows.evidenceId or rows.evidence_id) then
@@ -267,30 +408,9 @@ local function updateMappedCustody(src, fallbackEvidenceId, rows)
         local mdtEvidenceId = getMappedEvidenceId(csiEvidenceId)
 
         if not mdtEvidenceId then
-            mdtEvidenceId = createMappedEvidence(src, csiEvidenceId, {
-                title = ('CSI Evidence #%s'):format(tostring(csiEvidenceId)),
-                notes = 'Created from CSI custody event before the logged event was received.',
-                loggedBy = custody.performedBy
-            })
-        end
-
-        if mdtEvidenceId then
-            local action = mapCustodyAction(custody.action)
-            local actorSource = getActorSource(src, { performedBy = custody.performedBy })
-            local performedCitizenId = getCitizenId(custody.performedBy) or (actorSource and ps.getIdentifier(actorSource)) or nil
-            local notes = valueOrNil(custody.notes) or ('Custody %s from %s'):format(action, csiResourceName)
-
-            if valueOrNil(custody.timestamp) then
-                notes = ('%s\nCSI timestamp: %s'):format(notes, tostring(custody.timestamp))
-            end
-
-            exports[resourceName]:UpdateEvidenceCustody({
-                evidenceId = mdtEvidenceId,
-                action = action,
-                fromCitizenId = custody.fromCitizenId,
-                toCitizenId = custody.toCitizenId or (action ~= 'released' and performedCitizenId or nil),
-                notes = notes
-            }, actorSource)
+            queuePendingCustody(src, csiEvidenceId, custody)
+        else
+            sendCustodyToMdt(src, mdtEvidenceId, custody)
         end
     end
 end
@@ -301,7 +421,10 @@ end)
 
 AddEventHandler('tugamars_csi:server:OnEvidenceLogged', function(src, csiEvidenceId, data)
     if not csiEvidenceId then return end
-    createMappedEvidence(src, csiEvidenceId, data)
+    local mdtEvidenceId = createMappedEvidence(src, csiEvidenceId, data)
+    if mdtEvidenceId then
+        flushPendingCustody(csiEvidenceId, mdtEvidenceId)
+    end
 end)
 
 AddEventHandler('tugamars_csi:server:OnEvidenceCustodyUpdated', function(src, csiEvidenceId, custodyRows)

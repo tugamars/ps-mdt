@@ -3,8 +3,9 @@ local resourceName = tostring(GetCurrentResourceName())
 local function getActorCitizenId(actorSource, payload)
     if actorSource and tonumber(actorSource) and tonumber(actorSource) > 0 then
         local citizenid = ps.getIdentifier(tonumber(actorSource))
-        if citizenid and citizenid ~= '' then
-            return citizenid
+        local playerName = ps.getPlayerName(tonumber(actorSource))
+        if citizenid and citizenid ~= '' and playerName then
+            return playerName .. " (#" .. citizenid .. ")"
         end
     end
 
@@ -53,8 +54,8 @@ local function CreateEvidence(payload, actorSource)
 
     MySQL.insert.await([[
         INSERT INTO mdt_evidence_custody (evidence_id, from_citizenid, to_citizenid, action, notes)
-        VALUES (?, ?, ?, 'collected', ?)
-    ]], { evidenceId, nil, custodyHolder, evidence.custodyNotes or evidence.custody_notes or evidence.notes or '' })
+        VALUES (?, ?, ?, 'stored', ?)
+    ]], { evidenceId, custodyHolder, nil, evidence.custodyNotes or evidence.custody_notes or evidence.notes or '' })
 
     if actorSource and tonumber(actorSource) and tonumber(actorSource) > 0 and ps.auditLog then
         ps.auditLog(tonumber(actorSource), 'evidence_added', 'evidence', evidenceId, evidence)
@@ -611,8 +612,5 @@ RegisterNetEvent(resourceName .. ':server:openEvidenceStash', function(stashId)
 
     if not stashId or stashId == '' then return end
 
-    exports['qb-inventory']:OpenInventory(src, stashId, {
-        maxweight = 4000000,
-        slots = 500,
-    })
+    exports['ox_inventory']:forceOpenInventory(src,'stash', stashId)
 end)
