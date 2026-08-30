@@ -1,5 +1,5 @@
 local resourceName = tostring(GetCurrentResourceName())
-local config = TugamarsCsiEvidenceSdcard
+local config = InvestigationsModule
 
 local function dependencyStarted()
     return GetResourceState(config.Dependency) == 'started'
@@ -42,6 +42,41 @@ local function normalizeCard(card, index)
         previewUrl = type(card.previewUrl) == 'string' and card.previewUrl or nil,
         index = index,
     }
+end
+
+local function normalizeOfficer(officer)
+    officer = type(officer) == 'table' and officer or {}
+    return { name = tostring(officer.name or ''), callsign = tostring(officer.callsign or ''), department = tostring(officer.department or ''), rank = tostring(officer.rank or ''), job = tostring(officer.job or '') }
+end
+
+local function normalizeWitnessInterview(item, index)
+    item = type(item) == 'table' and item or {}
+    local metadata = type(item.metadata) == 'table' and item.metadata or type(item.info) == 'table' and item.info or {}
+    local statement, slot = tostring(metadata.statement or ''), tonumber(item.slot)
+    if statement == '' or not slot then return nil end
+    return { id = ('slot:%d'):format(slot), slot = slot, witnessName = tostring(metadata.citizen_name or 'Unknown witness'):sub(1, 100), phone = tostring(metadata.citizen_phone or ''):sub(1, 60), address = tostring(metadata.citizen_address or ''):sub(1, 150), role = tostring(metadata.role or ''):sub(1, 100), statement = statement:sub(1, 7600), officerNotes = tostring(metadata.officer_notes or ''):sub(1, 2000), date = tostring(metadata.date or ''):sub(1, 30), officer = normalizeOfficer(metadata.officer) }
+end
+
+local function getWitnessInterviewForms()
+    local items = {}
+    if GetResourceState('ox_inventory') == 'started' then
+        local ok, results = pcall(function() return exports.ox_inventory:Search('slots', 'witness_interview_form') end)
+        if ok and type(results) == 'table' then items = results end
+    end
+    if #items == 0 and GetResourceState('qb-core') == 'started' then
+        local ok, core = pcall(function() return exports['qb-core']:GetCoreObject() end)
+        local player = ok and core and core.Functions.GetPlayerData() or nil
+        if player and type(player.items) == 'table' then items = player.items end
+    end
+    local forms = {}
+    for index, item in pairs(items) do
+        if item and item.name == 'witness_interview_form' then
+            local form = normalizeWitnessInterview(item, index)
+            if form then forms[#forms + 1] = form end
+        end
+    end
+    table.sort(forms, function(a, b) return a.slot < b.slot end)
+    return forms
 end
 
 MDT.RegisterNUICallback(config.ModuleId, 'getSDCards', function()
@@ -101,5 +136,17 @@ MDT.RegisterNUICallback(config.ModuleId, 'getSDCardPhotos', function(data)
 end)
 
 MDT.RegisterNUICallback(config.ModuleId, 'importPhotos', function(data)
-    return ps.callback(resourceName .. ':server:tugamarsCsiSdcard:importPhotos', data)
+    return ps.callback(resourceName .. ':server:investigationsModule:importPhotos', data)
+end)
+
+MDT.RegisterNUICallback(config.ModuleId, 'getWitnessInterviews', function()
+    return { success = true, available = true, interviews = getWitnessInterviewForms() }
+end)
+
+MDT.RegisterNUICallback(config.ModuleId, 'searchProperties', function(data)
+    return ps.callback(resourceName .. ':server:investigationsModule:searchProperties', data)
+end)
+
+MDT.RegisterNUICallback(config.ModuleId, 'importWitnessInterviews', function(data)
+    return ps.callback(resourceName .. ':server:investigationsModule:importWitnessInterviews', data)
 end)

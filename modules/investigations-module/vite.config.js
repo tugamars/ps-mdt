@@ -6,7 +6,7 @@ export default defineConfig({
   build: {
     lib: {
       entry: './web/Main.svelte',
-      name: 'TugamarsCsiEvidenceSdcard',
+      name: 'InvestigationsModule',
       fileName: () => 'main.js',
       formats: ['es']
     },
