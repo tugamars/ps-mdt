@@ -15,6 +15,13 @@ export function createSettingsService() {
 	let isLoading = $state(false);
 	let error = $state<string | null>(null);
 
+	function toCssColor(value: string): string {
+		const color = value.trim();
+		return color.startsWith("rgb") || color.startsWith("#")
+			? color
+			: `rgb(${color})`;
+	}
+
 	function applyThemeColors(config: ColorConfig) {
 		const root = document.documentElement;
 		if (config.accent)
@@ -22,11 +29,11 @@ export function createSettingsService() {
 		if (config.accentText)
 			root.style.setProperty("--accent-text-rgb", config.accentText);
 		if (config.background)
-			root.style.setProperty("-dark-bg", config.background);
+			root.style.setProperty("--dark-bg", toCssColor(config.background));
 		if (config.cardBackground)
-			root.style.setProperty("--card-dark-bg", config.cardBackground);
+			root.style.setProperty("--card-dark-bg", toCssColor(config.cardBackground));
 		if (config.buttonPrimary)
-			root.style.setProperty("--btn-primary", config.buttonPrimary);
+			root.style.setProperty("--btn-primary", toCssColor(config.buttonPrimary));
 	}
 
 	async function loadColorConfig(): Promise<void> {

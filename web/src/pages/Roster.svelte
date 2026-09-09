@@ -7,6 +7,7 @@
 	import { NUI_EVENTS } from "../constants/nuiEvents";
 	import { globalNotifications } from "../services/notificationService.svelte";
 	import type { AuthService } from "../services/authService.svelte";
+	import OfficerProfile from "../components/OfficerProfile.svelte";
 
 	let { authService, tabService }: { authService?: AuthService; tabService?: any } = $props();
 
@@ -72,6 +73,9 @@
 	let editCallsign = $state("");
 	let isSavingBoss = $state(false);
 	let showFireConfirm = $state(false);
+	let showOfficerProfile = $state(false);
+	let profileOfficer = $state<Officer | null>(null);
+	let currentCitizenId = $derived(authService?.playerData?.citizenid || "");
 
 	let canManageCerts = $derived(authService?.hasPermission("roster_manage_certifications") ?? false);
 	let canManageOfficers = $derived(authService?.hasPermission("roster_manage_officers") ?? false);
@@ -312,6 +316,21 @@
 		}
 	}
 
+	function openOfficerProfile(officer: Officer) {
+		profileOfficer = officer;
+		showOfficerProfile = true;
+	}
+
+	function closeOfficerProfile() {
+		showOfficerProfile = false;
+		profileOfficer = null;
+	}
+
+	async function openOfficerManagement(officer: Officer) {
+		closeOfficerProfile();
+		await openOfficerPanel(officer);
+	}
+
 	function closeBossPanel() {
 		showBossPanel = false;
 		showFireConfirm = false;
@@ -549,6 +568,9 @@
 	}
 </script>
 
+{#if showOfficerProfile && profileOfficer}
+	<OfficerProfile officer={profileOfficer} {currentCitizenId} onclose={closeOfficerProfile} onmanage={canOpenPanel ? () => openOfficerManagement(profileOfficer!) : undefined} />
+{:else}
 <div class="roster-page">
 	<div class="topbar">
 		<input
@@ -596,8 +618,8 @@
 					{#each filteredOfficers as officer (officer.id)}
 						<div
 							class="table-row"
-							class:clickable={canOpenPanel}
-							onclick={() => openOfficerPanel(officer)}
+							class:clickable={true}
+							onclick={() => openOfficerProfile(officer)}
 						>
 							<span class="cell-status">
 								<span class="status-pill" class:on-duty={officer.status === "On Duty"} class:off-duty={officer.status === "Off Duty"}>
@@ -1371,7 +1393,7 @@
 		left: 0;
 		width: 100%;
 		height: 100%;
-		background: rgba(0, 0, 0, 0.6);
+		background: rgba(0, 0, 0, 0.25);
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1574,7 +1596,7 @@
 
 	/* Boss Panel */
 	.boss-panel {
-		background: var(--card-dark-bg);
+		background: rgb(18, 19, 20);
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		border-radius: 6px;
 		width: 560px;
@@ -1879,3 +1901,4 @@
 	.status-failed { background: rgba(239, 68, 68, 0.2); color: rgb(252, 165, 165); }
 	.status-suspended { background: rgba(245, 158, 11, 0.2); color: rgb(253, 224, 71); }
 </style>
+{/if}

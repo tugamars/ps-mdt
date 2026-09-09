@@ -136,6 +136,8 @@ export const NUI_EVENTS = {
 		PROMOTE_OFFICER: "promoteOfficer",
 		FIRE_OFFICER: "fireOfficer",
 		UPDATE_CALLSIGN: "updateOfficerCallsign",
+		GET_OFFICER_PROFILE: "getOfficerProfile",
+		UPDATE_MY_OFFICER_PROFILE: "updateMyOfficerProfile",
 	},
 	PPR: {
 		GET_PPR_LIST: "getPPRList",

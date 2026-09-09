@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS `mdt_profiles` (
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `profilepicture` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `certifications` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `officer_phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `officer_email` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `last_login_at` timestamp NULL DEFAULT NULL,
   `last_logout_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),

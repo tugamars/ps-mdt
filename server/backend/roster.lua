@@ -26,6 +26,75 @@ local function getCertifications(citizenid)
     return {}
 end
 
+local function decodeCertifications(value)
+    if not value or value == '' then return {} end
+    local ok, decoded = pcall(json.decode, value)
+    return ok and type(decoded) == 'table' and decoded or {}
+end
+
+ps.registerCallback('ps-mdt:server:getOfficerProfile', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    local citizenid = payload and payload.citizenid
+    if not citizenid or citizenid == '' then return { success = false, message = 'Missing officer ID' } end
+
+    EnsureProfileExists(citizenid)
+    local profile = MySQL.single.await([[SELECT profilepicture, certifications, officer_phone, officer_email
+        FROM mdt_profiles WHERE citizenid = ?]], { citizenid })
+    if not profile then return { success = false, message = 'Officer not found' } end
+
+    local reports = MySQL.query.await([[SELECT id, title, type, datecreated
+        FROM mdt_reports WHERE author = ? ORDER BY datecreated DESC LIMIT 10]], { citizenid }) or {}
+    local cases = MySQL.query.await([[SELECT DISTINCT mc.id, mc.case_number, mc.title, mc.status, mc.updated_at
+        FROM mdt_cases mc LEFT JOIN mdt_case_officers mco ON mco.case_id = mc.id
+        WHERE mco.citizenid = ? OR mc.created_by = ? ORDER BY mc.updated_at DESC LIMIT 10]], { citizenid, citizenid }) or {}
+    local reportStats = MySQL.single.await([[SELECT COUNT(*) AS reports_all_time,
+        COALESCE(SUM(CASE WHEN datecreated >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END), 0) AS reports_last_30,
+        COALESCE(SUM(CASE WHEN type = 'Arrest Report' THEN 1 ELSE 0 END), 0) AS arrests_all_time,
+        COALESCE(SUM(CASE WHEN type = 'Arrest Report' AND datecreated >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END), 0) AS arrests_last_30,
+        COALESCE(SUM(CASE WHEN type = 'Citation' THEN 1 ELSE 0 END), 0) AS citations_all_time,
+        COALESCE(SUM(CASE WHEN type = 'Citation' AND datecreated >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END), 0) AS citations_last_30
+        FROM mdt_reports WHERE author = ?]], { citizenid }) or {}
+    local chargeStats = MySQL.single.await([[SELECT COALESCE(SUM(rc.fine), 0) AS fines_all_time,
+        COALESCE(SUM(CASE WHEN r.datecreated >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN rc.fine ELSE 0 END), 0) AS fines_last_30,
+        COALESCE(SUM(rc.time), 0) AS jail_time_all_time,
+        COALESCE(SUM(CASE WHEN r.datecreated >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN rc.time ELSE 0 END), 0) AS jail_time_last_30 FROM mdt_reports_charges rc
+        INNER JOIN mdt_reports r ON r.id = rc.reportid WHERE r.author = ?]], { citizenid }) or {}
+
+    local requesterCitizenId = tostring(ps.getIdentifier(src) or ''):lower()
+    local requestedCitizenId = tostring(citizenid):lower()
+
+    return { success = true, data = {
+        picture = profile.profilepicture or '', phone = profile.officer_phone or '', email = profile.officer_email or '',
+        canEdit = requesterCitizenId ~= '' and requesterCitizenId == requestedCitizenId,
+        certifications = decodeCertifications(profile.certifications), reports = reports, cases = cases,
+        stats = {
+            last30Days = { reports = tonumber(reportStats.reports_last_30) or 0, arrests = tonumber(reportStats.arrests_last_30) or 0,
+                citations = tonumber(reportStats.citations_last_30) or 0, fines = tonumber(chargeStats.fines_last_30) or 0,
+                jailTime = tonumber(chargeStats.jail_time_last_30) or 0 },
+            allTime = { reports = tonumber(reportStats.reports_all_time) or 0, arrests = tonumber(reportStats.arrests_all_time) or 0,
+                citations = tonumber(reportStats.citations_all_time) or 0, fines = tonumber(chargeStats.fines_all_time) or 0,
+                jailTime = tonumber(chargeStats.jail_time_all_time) or 0 }
+        }
+    } }
+end)
+
+ps.registerCallback('ps-mdt:server:updateMyOfficerProfile', function(source, payload)
+    local src = source
+    if not CheckAuth(src) then return { success = false, message = 'Unauthorized' } end
+    local citizenid = ps.getIdentifier(src)
+    if not citizenid then return { success = false, message = 'Missing officer ID' } end
+    payload = payload or {}
+    local phone = tostring(payload.phone or ''):sub(1, 50)
+    local email = tostring(payload.email or ''):sub(1, 120)
+    local picture = tostring(payload.picture or ''):sub(1, 500)
+    if email ~= '' and not email:match('^[^%s@]+@[^%s@]+%.[^%s@]+$') then return { success = false, message = 'Enter a valid email address' } end
+    if picture ~= '' and not picture:match('^https?://') then return { success = false, message = 'Profile photo must use an http(s) URL' } end
+    EnsureProfileExists(citizenid)
+    MySQL.update.await('UPDATE mdt_profiles SET officer_phone = ?, officer_email = ?, profilepicture = ? WHERE citizenid = ?', { phone, email, picture, citizenid })
+    return { success = true, message = 'Profile updated' }
+end)
+
 local function buildRosterFromQbx()
     local rosterList = {}
     local activeUnits = {}

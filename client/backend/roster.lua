@@ -39,3 +39,13 @@ RegisterNUICallback('updateOfficerCallsign', function(data, cb)
     local result = ps.callback('ps-mdt:server:updateOfficerCallsign', data)
     cb(result or { success = false })
 end)
+
+RegisterNUICallback('getOfficerProfile', function(data, cb)
+    if not MDTOpen then cb({ success = false }) return end
+    cb(ps.callback('ps-mdt:server:getOfficerProfile', data) or { success = false })
+end)
+
+RegisterNUICallback('updateMyOfficerProfile', function(data, cb)
+    if not MDTOpen then cb({ success = false }) return end
+    cb(ps.callback('ps-mdt:server:updateMyOfficerProfile', data) or { success = false })
+end)

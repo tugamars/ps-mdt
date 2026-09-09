@@ -49,7 +49,11 @@
 
 	let activeComponent = $derived((getActiveComponent() as any) as ComponentId);
 	let contentZoom = $derived(`${preferencesService.uiZoom}%`);
-	let contentAreaZoom = $derived(activeComponent === "module_page" ? "100%" : contentZoom);
+	let contentAreaZoom = $derived(
+		activeComponent === "module_page" || activeComponent === "roster"
+			? "100%"
+			: contentZoom,
+	);
 	let sopAgreed = $state(false);
 	let sopChecked = $state(false);
 	let sopIntroduction = $state("");
