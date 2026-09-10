@@ -1,456 +1,56 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { fetchNui } from "../utils/fetchNui";
-	import { useNuiEvent } from "../utils/useNuiEvent";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
+	import { globalNotifications } from "../services/notificationService.svelte";
 	import { openReportInEditor } from "../stores/reportsStore";
 	import type { createTabService } from "../services/tabService.svelte";
-	import { globalNotifications } from "../services/notificationService.svelte";
-
+	import type { Charge } from "../interfaces/ICharges";
+	type WarrantType = "arrest" | "search" | "bench";
+	interface Warrant { id:number; warrant_type:WarrantType; citizenid:string; citizen_name:string; target_text:string; charges:string[]; reason:string; linked_report_id:number; status:"pending"|"approved"|"denied"|"executed"; officer_name?:string; requesting_officer?:string; reviewer_name?:string; review_reason?:string; reviewed_at?:string; created_at?:string; }
+	interface Citizen { citizenid?:string; cid?:string; firstname?:string; lastname?:string; firstName?:string; lastName?:string; name?:string; }
+	interface ReportSearchResult { id?:number; reportId?:number; title?:string; type?:string; authorplaintext?:string; datecreated?:string; }
 	let { tabService }: { tabService: ReturnType<typeof createTabService> } = $props();
-
-	interface Warrant {
-		reportid: number | string;
-		citizenid: string;
-		name: string;
-		felonies: number;
-		misdemeanors: number;
-		infractions: number;
-		expirydate: string;
-	}
-
-	let warrants = $state<Warrant[]>([]);
-	let isLoading = $state(false);
-	let searchQuery = $state("");
-
-	let filteredWarrants = $derived.by(() => {
-		const query = searchQuery.trim().toLowerCase();
-		if (!query) return warrants;
-		return warrants.filter((warrant) =>
-			[warrant.name, warrant.citizenid, String(warrant.reportid)].some(
-				(value) => String(value).toLowerCase().includes(query),
-			),
-		);
-	});
-
-	function formatExpiry(value: string): string {
-		if (!value) return "Unknown";
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return value;
-		return date.toLocaleDateString("en-US", {
-			month: "2-digit",
-			day: "2-digit",
-			year: "numeric",
-		});
-	}
-
-	function openReport(reportId: number | string) {
-		if (!reportId) return;
-		openReportInEditor(String(reportId));
-		tabService.setActiveTab("Reports");
-		const activeInstance = tabService.getActiveInstance();
-		if (activeInstance) {
-			tabService.setInstanceTab(activeInstance.id, "Reports");
-		}
-	}
-
-	function createWarrantReport() {
-		openReportInEditor("new");
-		tabService.setActiveTab("Reports");
-		const activeInstance = tabService.getActiveInstance();
-		if (activeInstance) {
-			tabService.setInstanceTab(activeInstance.id, "Reports");
-		}
-	}
-
-	async function loadWarrants() {
-		try {
-			isLoading = true;
-			const response = await fetchNui<Warrant[]>(
-				NUI_EVENTS.DASHBOARD.GET_ACTIVE_WARRANTS,
-			);
-			warrants = Array.isArray(response) ? response : [];
-		} catch (error) {
-			globalNotifications.error("Failed to load warrants");
-			warrants = [];
-		} finally {
-			isLoading = false;
-		}
-	}
-
-	onMount(() => {
-		if (isEnvBrowser()) {
-			warrants = [
-				{ reportid: 1, citizenid: 'ABC123', name: 'Marcus Johnson', felonies: 2, misdemeanors: 1, infractions: 0, expirydate: new Date(Date.now() + 7 * 86400000).toISOString() },
-				{ reportid: 3, citizenid: 'DEF456', name: 'David Chen', felonies: 0, misdemeanors: 3, infractions: 2, expirydate: new Date(Date.now() + 14 * 86400000).toISOString() },
-				{ reportid: 7, citizenid: 'GHI789', name: 'James Miller', felonies: 1, misdemeanors: 0, infractions: 0, expirydate: new Date(Date.now() + 3 * 86400000).toISOString() },
-				{ reportid: 12, citizenid: 'JKL012', name: 'Tony Ramirez', felonies: 0, misdemeanors: 0, infractions: 4, expirydate: new Date(Date.now() + 30 * 86400000).toISOString() },
-			];
-			return;
-		}
-		loadWarrants();
-	});
-
-	useNuiEvent<Warrant[]>(
-		NUI_EVENTS.DASHBOARD.UPDATE_ACTIVE_WARRANTS,
-		(data) => {
-			warrants = Array.isArray(data) ? data : [];
-		},
-	);
+	let warrants = $state<Warrant[]>([]), searchQuery = $state(""), isLoading = $state(false), showNew = $state(false), submitting = $state(false), targetQuery = $state(""), citizenResults = $state<Citizen[]>([]), listStatus = $state<"approved" | "mine">("approved"), selectedWarrant = $state<Warrant | null>(null);
+	let reportQuery = $state(""), reportResults = $state<ReportSearchResult[]>([]), selectedReport = $state<ReportSearchResult | null>(null), allCharges = $state<Charge[]>([]), chargeQuery = $state(""), selectedCharges = $state<Charge[]>([]);
+	let form = $state({ warrant_type:"arrest" as WarrantType, citizenid:"", citizen_name:"", target_text:"", reason:"", linked_report_id:"", charges:"" });
+	let filtered = $derived(warrants.filter(w => { const q=searchQuery.trim().toLowerCase(); return !q || [w.citizen_name,w.target_text,w.citizenid,w.linked_report_id,w.warrant_type].some(v=>String(v||"").toLowerCase().includes(q)); }));
+	let chargeResults = $derived.by(() => { const q=chargeQuery.trim().toLowerCase(); if(!q) return []; const selected = new Set(selectedCharges.map(c=>c.label)); return allCharges.filter(c => !selected.has(c.label) && [c.label,c.code,c.category,c.description].some(v=>String(v||"").toLowerCase().includes(q))).slice(0,8); });
+	const target = (w:Warrant) => w.warrant_type === "search" ? w.target_text : w.citizen_name;
+	const typeLabel = (type:string) => type.charAt(0).toUpperCase() + type.slice(1);
+	const formatDate = (value?:string) => value ? new Date(value).toLocaleString() : "—";
+	function parseCharges(v:unknown):string[] { try { return typeof v === "string" ? JSON.parse(v) : Array.isArray(v) ? v as string[] : []; } catch { return []; } }
+	async function loadWarrants() { isLoading=true; try { const r=await fetchNui<{requests:Warrant[]}>(NUI_EVENTS.DOJ.GET_WARRANT_REQUESTS,{status:listStatus, mine:listStatus === "mine", limit:100,search:searchQuery.trim()},{requests:[]}); warrants=(r.requests||[]).map((w:any)=>({...w,charges:parseCharges(w.charges)})); } catch { globalNotifications.error("Failed to load warrants"); } finally { isLoading=false; } }
+	function setListStatus(status: "approved" | "mine") { listStatus=status; searchQuery=""; loadWarrants(); }
+	function openReport(reportId: number) { if (!reportId) return; openReportInEditor(String(reportId)); tabService.setActiveTab("Reports"); const active=tabService.getActiveInstance(); if (active) tabService.setInstanceTab(active.id, "Reports"); }
+	function handleCitizenInput() { form.citizenid=""; form.citizen_name=""; findCitizens(); }
+	async function findCitizens() { if(targetQuery.trim().length<2) { citizenResults=[]; return; } const r=await fetchNui<Citizen[]>(NUI_EVENTS.CITIZEN.SEARCH_CITIZENS,{query:targetQuery.trim()},[]); citizenResults=Array.isArray(r)?r:[]; }
+	function chooseCitizen(c:Citizen) { form.citizenid=c.citizenid||c.cid||""; form.citizen_name=c.name||[c.firstname||c.firstName,c.lastname||c.lastName].filter(Boolean).join(" "); targetQuery=form.citizen_name; citizenResults=[]; }
+	function handleReportInput() { form.linked_report_id=""; selectedReport=null; findReports(); }
+	async function findReports() { if(reportQuery.trim().length<1) { reportResults=[]; return; } const r=await fetchNui<ReportSearchResult[]>(NUI_EVENTS.REPORT.SEARCH_REPORTS,{query:reportQuery.trim(),limit:8},[]); reportResults=Array.isArray(r)?r:[]; }
+	function chooseReport(r:ReportSearchResult) { selectedReport=r; form.linked_report_id=String(r.reportId||r.id||""); reportQuery=`#${form.linked_report_id}${r.title ? ` - ${r.title}` : ""}`; reportResults=[]; }
+	async function loadCharges() { if(allCharges.length) return; const r=await fetchNui<Charge[]>(NUI_EVENTS.CHARGE.GET_CHARGES,{},[]); allCharges=Array.isArray(r)?r.map(c=>({...c,description:c.description||"",category:c.category||"Uncategorized"})):[]; }
+	function addCharge(c:Charge) { selectedCharges=[...selectedCharges,c]; chargeQuery=""; form.charges=selectedCharges.map(charge=>charge.label).join(", "); }
+	function removeCharge(c:Charge) { selectedCharges=selectedCharges.filter(charge=>charge.label!==c.label); form.charges=selectedCharges.map(charge=>charge.label).join(", "); }
+	function resetForm() { form={warrant_type:"arrest",citizenid:"",citizen_name:"",target_text:"",reason:"",linked_report_id:"",charges:""}; targetQuery=""; citizenResults=[]; reportQuery=""; reportResults=[]; selectedReport=null; chargeQuery=""; selectedCharges=[]; }
+	async function openNewWarrant() { resetForm(); showNew=true; await loadCharges(); }
+	async function submit() { const charges=selectedCharges.map(c=>c.label); const validTarget=form.warrant_type==="search" ? form.target_text.trim() : form.citizenid; if(!validTarget || !form.reason.trim() || !form.linked_report_id || (form.warrant_type!=="search"&&!charges.length)) return globalNotifications.error("Complete all required warrant fields"); submitting=true; try { const r=await fetchNui<{success:boolean;error?:string}>(NUI_EVENTS.DOJ.CREATE_WARRANT_REQUEST,{...form,target_text:form.target_text.trim(),linked_report_id:Number(form.linked_report_id),charges},{success:false}); if(!r.success) return globalNotifications.error(r.error||"Failed to submit warrant"); globalNotifications.success("Warrant submitted for review"); showNew=false; resetForm(); } catch { globalNotifications.error("Failed to submit warrant"); } finally { submitting=false; } }
+	async function execute(w:Warrant) { const r=await fetchNui<{success:boolean;error?:string}>(NUI_EVENTS.DOJ.EXECUTE_WARRANT_REQUEST,{request_id:w.id},{success:false}); if(r.success) { globalNotifications.success("Warrant marked executed"); loadWarrants(); } else globalNotifications.error(r.error||"Failed to execute warrant"); }
+	onMount(()=>{if(!isEnvBrowser()) loadWarrants();});
 </script>
 
 <div class="warrants-page">
-	<div class="topbar">
-		<input
-			type="text"
-			placeholder="Search by name, ID, or report..."
-			bind:value={searchQuery}
-			class="search-input"
-		/>
-		<div class="topbar-actions">
-			<span class="result-count">{filteredWarrants.length} warrant{filteredWarrants.length !== 1 ? "s" : ""}</span>
-			<button
-				class="btn-secondary"
-				onclick={loadWarrants}
-				disabled={isLoading}
-			>
-				{isLoading ? "Loading..." : "Refresh"}
-			</button>
-			<button
-				class="btn-primary"
-				onclick={createWarrantReport}
-			>
-				New Warrant
-			</button>
-		</div>
-	</div>
-
-	<div class="list-panel">
-		<div class="table-header">
-			<span>Name</span>
-			<span>Citizen ID</span>
-			<span>Report</span>
-			<span>Felonies</span>
-			<span>Misdemeanors</span>
-			<span>Infractions</span>
-			<span>Expires</span>
-			<span></span>
-		</div>
-
-		<div class="table-body">
-			{#if isLoading && warrants.length === 0}
-				<div class="empty-state">
-					<div class="loading-spinner"></div>
-					<p>Loading warrants...</p>
-				</div>
-			{:else if filteredWarrants.length === 0}
-				<div class="empty-state">
-					<p class="empty-title">No Warrants Found</p>
-					<p class="empty-sub">
-						{searchQuery
-							? "No warrants match your search criteria."
-							: "No active warrants available."}
-					</p>
-				</div>
-			{:else}
-				{#each filteredWarrants as warrant}
-					<button class="table-row" onclick={() => openReport(warrant.reportid)}>
-						<span class="cell-name">{warrant.name}</span>
-						<span class="cell-id">{warrant.citizenid}</span>
-						<span class="cell-report">#{warrant.reportid}</span>
-						<span>
-							{#if warrant.felonies > 0}
-								<span class="pill pill-red">{warrant.felonies}</span>
-							{:else}
-								<span class="cell-muted">0</span>
-							{/if}
-						</span>
-						<span>
-							{#if warrant.misdemeanors > 0}
-								<span class="pill pill-orange">{warrant.misdemeanors}</span>
-							{:else}
-								<span class="cell-muted">0</span>
-							{/if}
-						</span>
-						<span>
-							{#if warrant.infractions > 0}
-								<span class="pill pill-grey">{warrant.infractions}</span>
-							{:else}
-								<span class="cell-muted">0</span>
-							{/if}
-						</span>
-						<span class="cell-date">{formatExpiry(warrant.expirydate)}</span>
-						<span class="cell-action">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-						</span>
-					</button>
-				{/each}
-			{/if}
-		</div>
-	</div>
+	<div class="topbar"><div class="search-box"><span class="material-icons">search</span><input bind:value={searchQuery} placeholder={listStatus === "approved" ? "Search approved warrants..." : "Search requests submitted by me..."} onkeydown={(e)=>e.key==="Enter"&&loadWarrants()} /></div><div class="status-toggle"><button class:active={listStatus === "approved"} onclick={()=>setListStatus("approved")}>Approved</button><button class:active={listStatus === "mine"} onclick={()=>setListStatus("mine")}>Requests by me</button></div><div class="topbar-actions"><span class="result-count">{filtered.length} {listStatus === "mine" ? "requests" : "approved"}</span><button class="topbar-btn" onclick={loadWarrants} disabled={isLoading}>{isLoading?"Loading...":"Refresh"}</button><button class="topbar-btn btn-primary" onclick={openNewWarrant}>New Warrant</button></div></div>
+	<div class="list-panel"><div class="list-header"><span>Type</span><span>Target</span><span>Report</span><span>Charges</span><span>Reason</span><span>{listStatus === "mine" ? "Status" : "Action"}</span></div><div class="list-body">{#if isLoading && warrants.length===0}<div class="empty-state"><div class="loading-spinner"></div><span>Loading warrants...</span></div>{:else if filtered.length===0}<div class="empty-state"><span class="material-icons empty-icon">gavel</span><strong>{listStatus === "mine" ? "No Requests Submitted" : "No Approved Warrants"}</strong><span>{searchQuery ? "No warrants match your search." : listStatus === "mine" ? "Your pending, executed, and denied requests will appear here." : "Approved warrants will appear here."}</span></div>{:else}{#each filtered as w}<div class="warrant-row" role="button" tabindex="0" onclick={()=>selectedWarrant=w} onkeydown={(e)=>e.key === "Enter" && (selectedWarrant=w)}><span><span class="type-pill type-{w.warrant_type}">{typeLabel(w.warrant_type)}</span></span><span class="target">{target(w)}{#if w.citizenid}<small>{w.citizenid}</small>{/if}</span><span><button class="report-id" onclick={(e)=>{e.stopPropagation();openReport(w.linked_report_id)}}>#{w.linked_report_id}</button></span><span class="charges">{w.charges.join(", ")||"—"}</span><span class="reason">{w.reason}</span><span>{#if listStatus === "mine"}<span class="status status-{w.status}">{typeLabel(w.status)}</span>{:else}<button class="execute-btn" onclick={(e)=>{e.stopPropagation();execute(w)}}>Mark executed</button>{/if}</span></div>{/each}{/if}</div></div>
 </div>
 
+{#if showNew}<div class="modal-backdrop"><form class="modal" onsubmit={(e)=>{e.preventDefault();submit();}}><div class="modal-header"><strong>New Warrant</strong><button type="button" class="close-btn" aria-label="Close" onclick={()=>showNew=false}>×</button></div><div class="form-body"><label>Warrant type<select bind:value={form.warrant_type}><option value="arrest">Arrest Warrant</option><option value="search">Search Warrant</option><option value="bench">Bench Warrant</option></select></label>{#if form.warrant_type === "search"}<label>Target<input bind:value={form.target_text} placeholder="Property, vehicle, location, or other target" /></label>{:else}<label>Target citizen<input bind:value={targetQuery} oninput={handleCitizenInput} placeholder="Search citizen name or ID" />{#if form.citizenid}<small>Selected: {form.citizen_name} ({form.citizenid})</small>{/if}</label>{#if citizenResults.length}<div class="results">{#each citizenResults as c}<button type="button" onclick={()=>chooseCitizen(c)}>{c.name||`${c.firstname||c.firstName||""} ${c.lastname||c.lastName||""}`} <small>{c.citizenid||c.cid}</small></button>{/each}</div>{/if}{/if}<label>Reason / charge<textarea bind:value={form.reason} placeholder="Probable cause and justification"></textarea></label><label>Attached report<input bind:value={reportQuery} oninput={handleReportInput} placeholder="Search report number, title, author, or content" />{#if form.linked_report_id}<small>Selected: report #{form.linked_report_id}{selectedReport?.title ? ` - ${selectedReport.title}` : ""}</small>{/if}</label>{#if reportResults.length}<div class="results">{#each reportResults as r}<button type="button" onclick={()=>chooseReport(r)}>#{r.reportId||r.id} {r.title||"Untitled report"} <small>{r.type||"Report"} · {r.authorplaintext||"Unknown"} · {formatDate(r.datecreated)}</small></button>{/each}</div>{/if}{#if form.warrant_type !== "search"}<label>Charges<input bind:value={chargeQuery} onfocus={loadCharges} oninput={loadCharges} placeholder="Search penal code or charge name" /><small>Required for arrest and bench warrants.</small></label>{#if selectedCharges.length}<div class="selected-charges">{#each selectedCharges as c}<button type="button" onclick={()=>removeCharge(c)}>{c.label}<span>×</span></button>{/each}</div>{/if}{#if chargeResults.length}<div class="results">{#each chargeResults as c}<button type="button" onclick={()=>addCharge(c)}>{c.label} <small>{c.code||"No code"} · {c.category||"Uncategorized"}</small></button>{/each}</div>{/if}{/if}</div><div class="modal-footer"><button type="button" class="topbar-btn" onclick={()=>showNew=false}>Cancel</button><button class="topbar-btn btn-primary" disabled={submitting}>{submitting?"Submitting...":"Submit for review"}</button></div></form></div>{/if}
+
+{#if selectedWarrant}<div class="modal-backdrop" onclick={(e)=>e.target===e.currentTarget&&(selectedWarrant=null)}><div class="modal warrant-detail" role="dialog" aria-modal="true"><div class="modal-header"><div><strong>{typeLabel(selectedWarrant.warrant_type)} Warrant</strong><small class="detail-id">Request #{selectedWarrant.id}</small></div><button class="close-btn" aria-label="Close" onclick={()=>selectedWarrant=null}>×</button></div><div class="detail-body"><div class="detail-grid"><div><span>Target</span><strong>{target(selectedWarrant)}</strong>{#if selectedWarrant.citizenid}<small>{selectedWarrant.citizenid}</small>{/if}</div><div><span>Status</span><strong class="detail-status status-{selectedWarrant.status}">{typeLabel(selectedWarrant.status)}</strong></div><div><span>Requesting officer</span><strong>{selectedWarrant.officer_name||selectedWarrant.requesting_officer||"Unknown"}</strong></div><div><span>Submitted</span><strong>{formatDate(selectedWarrant.created_at)}</strong></div></div><section><span>Charges</span><p>{selectedWarrant.charges.join(", ")||"No charges listed"}</p></section><section><span>Reason / justification</span><p>{selectedWarrant.reason||"No reason provided"}</p></section>{#if selectedWarrant.review_reason}<section class="review-note"><span>{selectedWarrant.status === "denied" ? "Denial note" : "Approval note"}</span><p>{selectedWarrant.review_reason}</p><small>{selectedWarrant.reviewer_name||"Judicial reviewer"} · {formatDate(selectedWarrant.reviewed_at)}</small></section>{/if}</div><div class="modal-footer"><button class="topbar-btn" onclick={()=>openReport(selectedWarrant!.linked_report_id)}>View report #{selectedWarrant.linked_report_id}</button><button class="topbar-btn" onclick={()=>selectedWarrant=null}>Close</button></div></div></div>{/if}
+
 <style>
-	.warrants-page {
-		display: flex;
-		flex-direction: column;
-		height: 100%;
-		background: var(--card-dark-bg);
-		color: rgba(255, 255, 255, 0.9);
-		overflow: hidden;
-	}
-
-	.topbar {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 0 16px;
-		height: 42px;
-		flex-shrink: 0;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-	}
-
-	.search-input {
-		flex: 1;
-		max-width: 360px;
-		background: transparent;
-		border: none;
-		padding: 0;
-		color: rgba(255, 255, 255, 0.8);
-		font-size: 12px;
-	}
-
-	.search-input:focus {
-		outline: none;
-	}
-
-	.search-input::placeholder {
-		color: rgba(255, 255, 255, 0.2);
-	}
-
-	.topbar-actions {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-left: auto;
-	}
-
-	.result-count {
-		color: rgba(255, 255, 255, 0.2);
-		font-size: 10px;
-	}
-
-	.btn-secondary {
-		background: transparent;
-		border: 1px solid rgba(255, 255, 255, 0.06);
-		border-radius: 3px;
-		padding: 4px 10px;
-		color: rgba(255, 255, 255, 0.4);
-		font-size: 10px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.1s;
-	}
-
-	.btn-secondary:hover:not(:disabled) {
-		color: rgba(255, 255, 255, 0.7);
-		border-color: rgba(255, 255, 255, 0.1);
-	}
-
-	.btn-secondary:disabled {
-		opacity: 0.3;
-		cursor: not-allowed;
-	}
-
-	.btn-primary {
-		background: rgba(var(--accent-rgb), 0.06);
-		border: 1px solid rgba(var(--accent-rgb), 0.1);
-		border-radius: 3px;
-		padding: 4px 10px;
-		color: rgba(var(--accent-text-rgb), 0.7);
-		font-size: 10px;
-		font-weight: 500;
-		cursor: pointer;
-		transition: all 0.1s;
-	}
-
-	.btn-primary:hover {
-		background: rgba(var(--accent-rgb), 0.12);
-		color: rgba(var(--accent-text-rgb), 0.9);
-	}
-
-	.list-panel {
-		flex: 1;
-		min-height: 0;
-		background: transparent;
-		border: none;
-		border-radius: 0;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.table-header {
-		display: grid;
-		grid-template-columns: 1.5fr 0.8fr 0.6fr 0.7fr 0.9fr 0.7fr 0.8fr 40px;
-		gap: 8px;
-		padding: 8px 16px;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-		font-size: 9px;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.6px;
-		color: rgba(255, 255, 255, 0.35);
-	}
-
-	.table-body {
-		flex: 1;
-		overflow-y: auto;
-	}
-
-	.table-row {
-		display: grid;
-		grid-template-columns: 1.5fr 0.8fr 0.6fr 0.7fr 0.9fr 0.7fr 0.8fr 40px;
-		gap: 8px;
-		padding: 7px 16px;
-		border: none;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-		background: transparent;
-		color: rgba(255, 255, 255, 0.85);
-		font-size: 11px;
-		cursor: pointer;
-		transition: background 0.1s;
-		text-align: left;
-		width: 100%;
-		align-items: center;
-	}
-
-	.table-row:hover {
-		background: rgba(255, 255, 255, 0.02);
-	}
-
-	.table-row:last-child {
-		border-bottom: none;
-	}
-
-	.cell-name {
-		font-weight: 500;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.cell-id {
-		font-family: monospace;
-		font-size: 10px;
-		color: rgba(255, 255, 255, 0.35);
-	}
-
-	.cell-report {
-		color: rgba(var(--accent-text-rgb), 0.7);
-		font-weight: 500;
-		font-size: 10px;
-	}
-
-	.cell-muted {
-		color: rgba(255, 255, 255, 0.2);
-	}
-
-	.cell-date {
-		color: rgba(255, 255, 255, 0.35);
-		font-size: 10px;
-	}
-
-	.cell-action {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: rgba(255, 255, 255, 0.15);
-		transition: color 0.1s;
-	}
-
-	.table-row:hover .cell-action {
-		color: rgba(var(--accent-text-rgb), 0.7);
-	}
-
-	.pill {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 1px 6px;
-		border-radius: 3px;
-		font-size: 10px;
-		font-weight: 600;
-		min-width: 18px;
-	}
-
-	.pill-red {
-		background: rgba(239, 68, 68, 0.08);
-		color: rgba(252, 165, 165, 0.8);
-		border: 1px solid rgba(239, 68, 68, 0.1);
-	}
-
-	.pill-orange {
-		background: rgba(249, 115, 22, 0.08);
-		color: rgba(253, 186, 116, 0.8);
-		border: 1px solid rgba(249, 115, 22, 0.1);
-	}
-
-	.pill-grey {
-		background: rgba(255, 255, 255, 0.03);
-		color: rgba(255, 255, 255, 0.4);
-		border: 1px solid rgba(255, 255, 255, 0.05);
-	}
-
-	.empty-state {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		height: 300px;
-		text-align: center;
-		color: rgba(255, 255, 255, 0.35);
-	}
-
-	.empty-title {
-		font-size: 14px;
-		font-weight: 600;
-		color: rgba(255, 255, 255, 0.4);
-		margin: 0 0 4px;
-	}
-
-	.empty-sub {
-		font-size: 11px;
-		color: rgba(255, 255, 255, 0.35);
-		margin: 0;
-	}
-
-	.loading-spinner {
-		width: 24px;
-		height: 24px;
-		border: 2px solid rgba(255, 255, 255, 0.06);
-		border-left: 2px solid rgba(var(--accent-rgb), 0.5);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-		margin-bottom: 10px;
-	}
-
-	@keyframes spin {
-		0% { transform: rotate(0deg); }
-		100% { transform: rotate(360deg); }
-	}
-
-	.table-body::-webkit-scrollbar {
-		width: 4px;
-	}
-
-	.table-body::-webkit-scrollbar-track {
-		background: transparent;
-	}
-
-	.table-body::-webkit-scrollbar-thumb {
-		background: rgba(255, 255, 255, 0.06);
-		border-radius: 2px;
-	}
+	.warrants-page{height:100%;display:flex;flex-direction:column;background:var(--card-dark-bg);overflow:hidden;color:rgba(255,255,255,.85)}.topbar{height:48px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0}.search-box{display:flex;align-items:center;gap:8px;flex:1;max-width:420px;color:rgba(255,255,255,.3)}.search-box input{width:100%;border:0;outline:0;background:transparent;color:#fff;font-size:12px}.status-toggle{display:flex;gap:2px;margin-left:14px}.status-toggle button{border:0;border-bottom:2px solid transparent;background:transparent;padding:4px 9px;color:rgba(255,255,255,.35);font-size:10px;cursor:pointer}.status-toggle button.active{color:rgba(var(--accent-text-rgb),.9);border-bottom-color:rgba(var(--accent-rgb),.7)}.topbar-actions{display:flex;align-items:center;gap:6px;margin-left:auto}.result-count{font-size:10px;color:rgba(255,255,255,.3)}.topbar-btn{border:1px solid rgba(255,255,255,.1);border-radius:3px;background:transparent;padding:5px 10px;color:rgba(255,255,255,.55);font-size:10px;cursor:pointer}.btn-primary{background:rgba(var(--accent-rgb),.12);color:rgba(var(--accent-text-rgb),.9)}.list-panel{min-height:0;flex:1;display:flex;flex-direction:column}.list-header,.warrant-row{display:grid;grid-template-columns:110px minmax(170px,1.1fr) 80px minmax(180px,1.3fr) minmax(230px,2fr) 112px;gap:12px;align-items:center;padding:0 20px}.list-header{height:34px;border-bottom:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.35);font-size:9px;font-weight:600;text-transform:uppercase}.list-body{flex:1;overflow:auto}.warrant-row{min-height:52px;border:0;border-bottom:1px solid rgba(255,255,255,.04);background:transparent;color:inherit;text-align:left;font-size:11px;cursor:pointer;width:100%}.warrant-row:hover{background:rgba(255,255,255,.025)}.target,.charges,.reason{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.target{font-weight:500}.charges,.reason{color:rgba(255,255,255,.55)}.target small,.results small{display:block;margin-top:2px;color:rgba(255,255,255,.35);font-family:monospace;font-size:9px}.type-pill,.status{display:inline-flex;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600}.status{width:max-content;font-size:8px;text-transform:uppercase}.type-arrest,.status-denied{background:rgba(239,68,68,.1);color:rgba(252,165,165,.85)}.type-search,.status-executed{background:rgba(96,165,250,.1);color:rgba(147,197,253,.85)}.type-bench,.status-pending{background:rgba(245,158,11,.1);color:rgba(253,230,138,.85)}.status-approved{background:rgba(16,185,129,.1);color:rgba(110,231,183,.85)}.report-id{border:0;background:transparent;padding:0;color:rgba(var(--accent-text-rgb),.8);font-family:monospace;cursor:pointer}.report-id:hover{text-decoration:underline}.execute-btn{border:1px solid rgba(16,185,129,.18);border-radius:3px;background:rgba(16,185,129,.07);padding:4px 7px;color:rgba(110,231,183,.85);font-size:9px;cursor:pointer}.empty-state{height:100%;min-height:240px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:rgba(255,255,255,.35);font-size:11px}.empty-icon{font-size:34px;opacity:.25}.loading-spinner{width:22px;height:22px;border:2px solid rgba(255,255,255,.1);border-top-color:rgba(var(--accent-rgb),.7);border-radius:50%;animation:spin .7s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.modal-backdrop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.65)}.modal{width:min(520px,calc(100vw - 32px));max-height:90vh;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:#171d29;color:rgba(255,255,255,.85)}.modal-header,.modal-footer{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid rgba(255,255,255,.07)}.modal-footer{justify-content:flex-end;gap:7px;border-bottom:0;border-top:1px solid rgba(255,255,255,.07)}.close-btn{border:0;background:transparent;color:rgba(255,255,255,.55);font-size:20px;cursor:pointer}.form-body{display:grid;gap:12px;padding:16px}.form-body label{display:grid;gap:6px;color:rgba(255,255,255,.55);font-size:11px}.form-body input,.form-body select,.form-body textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid rgba(255,255,255,.1);border-radius:3px;background:#0e1420;color:white;font:inherit}.form-body textarea{min-height:78px}.results{max-height:120px;overflow:auto;border:1px solid rgba(255,255,255,.1);border-radius:3px;background:#0b111b}.results button{display:block;width:100%;border:0;border-bottom:1px solid rgba(255,255,255,.05);background:transparent;padding:8px;color:#ddd;text-align:left;cursor:pointer}.results button:hover{background:rgba(255,255,255,.04)}.selected-charges{display:flex;flex-wrap:wrap;gap:6px}.selected-charges button{display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(var(--accent-rgb),.16);border-radius:3px;background:rgba(var(--accent-rgb),.08);padding:4px 7px;color:rgba(var(--accent-text-rgb),.9);font-size:10px;cursor:pointer}.selected-charges span{color:rgba(255,255,255,.45)}.warrant-detail{width:min(660px,calc(100vw - 32px))}.detail-id{display:block;margin-top:3px;color:rgba(255,255,255,.35);font-family:monospace;font-size:10px}.detail-body{padding:16px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding-bottom:15px;border-bottom:1px solid rgba(255,255,255,.07)}.detail-grid div,.detail-body section{display:flex;flex-direction:column;gap:5px}.detail-grid span,.detail-body section>span{font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:rgba(255,255,255,.38)}.detail-grid strong{font-size:12px;font-weight:500;word-break:break-word}.detail-grid small,.review-note small{color:rgba(255,255,255,.35);font-size:10px}.detail-status{padding:2px 6px;border-radius:3px;width:max-content;text-transform:uppercase;font-size:9px!important}.detail-body section{padding:15px 0;border-bottom:1px solid rgba(255,255,255,.07)}.detail-body section p{margin:0;color:rgba(255,255,255,.72);font-size:12px;line-height:1.55;white-space:pre-wrap}.detail-body .review-note{border:1px solid rgba(var(--accent-rgb),.16);border-radius:4px;padding:12px;margin-top:15px;background:rgba(var(--accent-rgb),.04)}
+	.modal:not(.warrant-detail){width:min(430px,calc(100vw - 48px));max-height:82vh}.modal:not(.warrant-detail) .modal-header{padding:10px 14px}.modal:not(.warrant-detail) .modal-header strong{font-size:16px}.modal:not(.warrant-detail) .modal-footer{padding:10px 14px}.modal:not(.warrant-detail) .form-body{gap:8px;padding:12px 14px}.modal:not(.warrant-detail) .form-body label{gap:4px;font-size:10px}.modal:not(.warrant-detail) .form-body input,.modal:not(.warrant-detail) .form-body select,.modal:not(.warrant-detail) .form-body textarea{padding:6px 8px;font-size:11px}.modal:not(.warrant-detail) .form-body textarea{min-height:54px}.modal:not(.warrant-detail) .results{max-height:76px}.modal:not(.warrant-detail) .results button{padding:6px 8px;font-size:11px;line-height:1.25}.modal:not(.warrant-detail) .results small,.modal:not(.warrant-detail) .form-body small{font-size:8px}.modal:not(.warrant-detail) .selected-charges{gap:4px;max-height:54px;overflow:auto}.modal:not(.warrant-detail) .selected-charges button{padding:3px 6px;font-size:9px}
 </style>
+

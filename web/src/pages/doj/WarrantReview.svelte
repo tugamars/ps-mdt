@@ -4,6 +4,7 @@
 	import { isEnvBrowser } from "../../utils/misc";
 	import { NUI_EVENTS } from "../../constants/nuiEvents";
 	import { globalNotifications } from "../../services/notificationService.svelte";
+	import { openReportInEditor } from "../../stores/reportsStore";
 	import type { createTabService } from "../../services/tabService.svelte";
 	import type { AuthService } from "../../services/authService.svelte";
 
@@ -14,14 +15,17 @@
 
 	let { tabService, authService }: Props = $props();
 
-	type WarrantRequestStatus = "pending" | "approved" | "denied";
+	type WarrantRequestStatus = "pending" | "approved" | "executed" | "denied";
 
 	interface WarrantRequest {
 		id: number;
+		warrant_type?: "arrest" | "search" | "bench";
 		citizen_name: string;
+		target_text?: string;
 		citizenid: string;
 		charges: string[];
 		requesting_officer: string;
+		officer_name?: string;
 		requesting_officer_badge?: string;
 		linked_report_id?: number;
 		reason: string;
@@ -39,7 +43,15 @@
 	let statusFilter = $state<string>("pending");
 	let reviewReason = $state("");
 
-	let canApprove = $derived(authService?.hasPermission("warrants_approve") ?? false);
+	let canApprove = $derived(authService?.hasAnyPermission("warrants_review", "warrants_approve") ?? false);
+
+	function openLinkedReport(reportId: number | undefined) {
+		if (!reportId) return;
+		openReportInEditor(String(reportId));
+		tabService.setActiveTab("Reports");
+		const activeInstance = tabService.getActiveInstance();
+		if (activeInstance) tabService.setInstanceTab(activeInstance.id, "Reports");
+	}
 
 	// New document modal
 	let showNewDocModal = $state(false);
@@ -69,12 +81,15 @@
 		}
 	}
 
-	const statusOptions = ["pending", "approved", "denied", "all"];
+	// Pending is the review queue. DOJ can also search historical outcomes here;
+	// approved operational warrants are intentionally shown on the Warrants page.
+	const statusOptions = ["pending", "executed", "denied"];
 
 	function getStatusPillClass(status: string): string {
 		switch (status) {
 			case "pending": return "pill-yellow";
 			case "approved": return "pill-green";
+			case "executed": return "pill-blue";
 			case "denied": return "pill-red";
 			default: return "pill-grey";
 		}
@@ -188,8 +203,8 @@
 			const result = await fetchNui<{ success: boolean; error?: string }>(
 				NUI_EVENTS.DOJ.REVIEW_WARRANT_REQUEST,
 				{
-					id: selectedRequest.id,
-					status: action,
+					request_id: selectedRequest.id,
+					decision: action,
 					reason: reviewReason.trim(),
 				},
 				{ success: true },
@@ -227,12 +242,16 @@
 						<div class="section-title">Request Information</div>
 						<div class="field-row">
 							<div class="field-group">
-								<span class="field-label">Citizen</span>
-								<span class="field-value">{selectedRequest.citizen_name}</span>
+								<span class="field-label">{selectedRequest.warrant_type === "search" ? "Target" : "Citizen"}</span>
+								<span class="field-value">{selectedRequest.warrant_type === "search" ? selectedRequest.target_text : selectedRequest.citizen_name}</span>
 							</div>
-							<div class="field-group">
+							{#if selectedRequest.warrant_type !== "search"}<div class="field-group">
 								<span class="field-label">Citizen ID</span>
 								<span class="field-value mono">{selectedRequest.citizenid}</span>
+							</div>{/if}
+							<div class="field-group">
+								<span class="field-label">Warrant Type</span>
+								<span class="field-value">{formatLabel(selectedRequest.warrant_type || "arrest")}</span>
 							</div>
 							<div class="field-group">
 								<span class="field-label">Submitted</span>
@@ -258,12 +277,12 @@
 						<div class="field-row">
 							<div class="field-group">
 								<span class="field-label">Officer</span>
-								<span class="field-value">{selectedRequest.requesting_officer}{selectedRequest.requesting_officer_badge ? ` (#${selectedRequest.requesting_officer_badge})` : ""}</span>
+								<span class="field-value">{selectedRequest.officer_name || selectedRequest.requesting_officer}{selectedRequest.requesting_officer_badge ? ` (#${selectedRequest.requesting_officer_badge})` : ""}</span>
 							</div>
 							{#if selectedRequest.linked_report_id}
 								<div class="field-group">
 									<span class="field-label">Linked Report</span>
-									<span class="field-value link">#{selectedRequest.linked_report_id}</span>
+									<button class="field-value link" type="button" onclick={() => openLinkedReport(selectedRequest.linked_report_id)}>#{selectedRequest.linked_report_id}</button>
 								</div>
 							{/if}
 						</div>
@@ -371,7 +390,7 @@
 						<button class="table-row" onclick={() => selectRequest(item.id)}>
 							<span class="row-title">{item.citizen_name}</span>
 							<span class="row-charges">{item.charges.slice(0, 2).join(", ")}{item.charges.length > 2 ? ` +${item.charges.length - 2}` : ""}</span>
-							<span>{item.requesting_officer}</span>
+							<span>{item.officer_name || item.requesting_officer}</span>
 							<span class="row-case">{item.linked_report_id ? `#${item.linked_report_id}` : "-"}</span>
 							<span><span class="pill {getStatusPillClass(item.status)}">{formatLabel(item.status)}</span></span>
 							<span>{formatDateValue(item.created_at)}</span>

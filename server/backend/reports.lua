@@ -254,6 +254,59 @@ ps.registerCallback(resourceName .. ':server:getReports', function(source, page,
 	return reports
 end)
 
+ps.registerCallback(resourceName .. ':server:searchReports', function(source, query, limit)
+    local src = source
+	if not CheckAuth(src) then return {} end
+
+    local identifier = ps.getIdentifier(src)
+    local job = ps.getJobName(src)
+    local jobType = getEffectiveJobType(src)
+    local normalizedLimit = tonumber(limit) or 10
+    normalizedLimit = math.max(1, math.min(normalizedLimit, 20))
+    local normalizedQuery = tostring(query or ''):gsub('^%s+', ''):gsub('%s+$', '')
+
+    if normalizedQuery == '' then
+        return {}
+    end
+
+    local likeQuery = '%' .. normalizedQuery .. '%'
+    local exactId = tonumber(normalizedQuery)
+    local idQuery = exactId or -1
+
+	local reports = MySQL.query.await(([[ 
+		SELECT
+			mr.id,
+			mr.id as reportId,
+			mr.title,
+			mr.type,
+			mr.authorplaintext,
+			mr.datecreated
+		FROM
+			mdt_reports AS mr
+		LEFT JOIN
+			mdt_reports_restrictions AS mrr ON mr.id = mrr.reportid
+		WHERE
+			%s
+            AND (
+                mr.id = ?
+                OR mr.title LIKE ?
+                OR mr.type LIKE ?
+                OR mr.authorplaintext LIKE ?
+                OR mr.contentplaintext LIKE ?
+            )
+		GROUP BY
+			mr.id
+		ORDER BY
+			mr.datecreated DESC
+		LIMIT %d
+	]]):format(buildReportAccessClause(), normalizedLimit), {
+        jobType, jobType, jobType, identifier, job, jobType,
+        idQuery, likeQuery, likeQuery, likeQuery, likeQuery
+    })
+
+	return reports or {}
+end)
+
 ps.registerCallback(resourceName..':server:getReport', function(source, reportid)
     local src = source
 	if not CheckAuth(src) then return end
@@ -843,19 +896,30 @@ ps.registerCallback(resourceName..':server:saveReport', function(source, reportD
     end
 
     if reportId and next(warrantCitizenIds) ~= nil then
-        local expiryDate = os.date('%Y-%m-%d %H:%M:%S', os.time() + (7 * 24 * 60 * 60))
         local warrantQueries = {}
         for citizenid, _ in pairs(warrantCitizenIds) do
-            table.insert(warrantQueries, {
-                query = [[
-                    INSERT INTO mdt_reports_warrants (reportid, citizenid, felonies, misdemeanors, infractions, expirydate)
-                    VALUES (?, ?, 0, 0, 0, ?)
-                    ON DUPLICATE KEY UPDATE expirydate = VALUES(expirydate)
-                ]],
-                values = { reportId, citizenid, expiryDate }
-            })
+            local alreadyPending = MySQL.single.await([[SELECT id FROM mdt_warrant_requests
+                WHERE linked_report_id = ? AND citizenid = ? AND status = 'pending' LIMIT 1]], { reportId, citizenid })
+            local alreadyApproved = MySQL.single.await([[SELECT id FROM mdt_reports_warrants
+                WHERE reportid = ? AND citizenid = ?]], { reportId, citizenid })
+            if not alreadyPending and not alreadyApproved then
+                local citizenName = ''
+                for _, involved in ipairs(reportData.involved or {}) do
+                    if involved.citizenid == citizenid then citizenName = involved.fullName or involved.name or '' break end
+                end
+                local chargeNames = {}
+                for _, charge in ipairs(reportData.charges or {}) do
+                    if charge.citizenid == citizenid and charge.charge then chargeNames[#chargeNames + 1] = charge.charge end
+                end
+                table.insert(warrantQueries, {
+                    query = [[INSERT INTO mdt_warrant_requests
+                        (warrant_type, citizenid, citizen_name, target_text, requesting_officer, officer_name, charges, reason, linked_report_id, status)
+                        VALUES ('arrest', ?, ?, '', ?, ?, ?, ?, ?, 'pending')]],
+                    values = { citizenid, citizenName, ps.getIdentifier(src), ps.getPlayerName(src) or '', json.encode(chargeNames), 'Arrest warrant submitted from report for approval', reportId }
+                })
+            end
         end
-        MySQL.transaction.await(warrantQueries)
+        if #warrantQueries > 0 then MySQL.transaction.await(warrantQueries) end
     end
 
     Cache.invalidatePrefix('reports:analytics:')

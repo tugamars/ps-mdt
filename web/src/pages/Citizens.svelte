@@ -1731,7 +1731,7 @@
 	.jail-alert-time { color: rgba(254,202,202,0.85); font-size: 11px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 	/* Body */
-	.profile-body { display: grid; grid-template-columns: 240px 1fr; flex: 1; min-height: 0; overflow: hidden; }
+	.profile-body { display: grid; grid-template-columns: 240px minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
 
 	.profile-sidebar { display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,0.06); overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent; }
 	.profile-sidebar::-webkit-scrollbar { width: 3px; }
@@ -1781,10 +1781,11 @@
 
 	.notes-text { color: rgba(255,255,255,0.55); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
 
-	.profile-main { display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent; }
+	.profile-main { display: flex; flex-direction: column; min-width: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent; }
 	.profile-main::-webkit-scrollbar { width: 3px; }
 	.profile-main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 2px; }
-	.sections-grid { display: grid; grid-template-columns: 1fr 1fr; }
+	.sections-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; }
+	.sections-grid > .panel { min-width: 0; }
 
 	/* Sections grid panels - use borders, no gaps */
 	.sections-grid .panel { border-bottom: 1px solid rgba(255,255,255,0.06); border-right: 1px solid rgba(255,255,255,0.06); }

@@ -9,6 +9,7 @@
 		onRemove: (id: string) => void;
 		onUpdate: (suspect: Suspect) => void;
 		onIssueWarrant: (suspect: Suspect) => void;
+		onCloseWarrant?: (suspect: Suspect) => void;
 		onIssueBenchWarrant?: (suspect: Suspect) => void;
 		onIssueBolo?: (suspect: Suspect) => void;
 		onTakeMugshot?: (suspect: Suspect) => void;
@@ -22,6 +23,7 @@
 		onRemove,
 		onUpdate,
 		onIssueWarrant,
+		onCloseWarrant,
 		onIssueBenchWarrant,
 		onIssueBolo,
 		onTakeMugshot,
@@ -111,6 +113,16 @@
 					>
 						Issue Warrant
 					</button>
+					{#if onCloseWarrant && suspect.warrantActive}
+						<button
+							class="action-btn"
+							onclick={() => onCloseWarrant?.(suspect)}
+							type="button"
+							aria-label="Remove warrant"
+						>
+							Remove Warrant
+						</button>
+					{/if}
 					{#if onIssueBenchWarrant}
 						<button
 							class="action-btn bench-warrant"

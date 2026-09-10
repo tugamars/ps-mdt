@@ -1312,24 +1312,36 @@ CREATE TABLE IF NOT EXISTS `mdt_legal_documents` (
 -- DOJ Warrant Requests (separate from mdt_reports_warrants)
 CREATE TABLE IF NOT EXISTS `mdt_warrant_requests` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `warrant_type` enum('arrest','search','bench') NOT NULL DEFAULT 'arrest',
   `citizenid` varchar(50) NOT NULL,
   `citizen_name` varchar(100) NOT NULL DEFAULT '',
+  `target_text` varchar(255) NOT NULL DEFAULT '',
   `requesting_officer` varchar(50) NOT NULL,
   `officer_name` varchar(100) NOT NULL DEFAULT '',
   `charges` text DEFAULT NULL,
   `reason` text NOT NULL,
   `linked_report_id` int(10) unsigned DEFAULT NULL,
-  `status` enum('pending','approved','denied') NOT NULL DEFAULT 'pending',
+  `status` enum('pending','approved','executed','denied') NOT NULL DEFAULT 'pending',
   `reviewer_citizenid` varchar(50) DEFAULT NULL,
   `reviewer_name` varchar(100) DEFAULT NULL,
   `review_reason` text DEFAULT NULL,
   `reviewed_at` timestamp NULL DEFAULT NULL,
+  `executed_by` varchar(50) DEFAULT NULL,
+  `executed_by_name` varchar(100) DEFAULT NULL,
+  `executed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_citizenid` (`citizenid`),
   KEY `idx_status` (`status`),
   KEY `idx_requesting_officer` (`requesting_officer`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `mdt_warrant_requests` ADD COLUMN IF NOT EXISTS `warrant_type` enum('arrest','search','bench') NOT NULL DEFAULT 'arrest' AFTER `id`;
+ALTER TABLE `mdt_warrant_requests` ADD COLUMN IF NOT EXISTS `target_text` varchar(255) NOT NULL DEFAULT '' AFTER `citizen_name`;
+ALTER TABLE `mdt_warrant_requests` ADD COLUMN IF NOT EXISTS `executed_by` varchar(50) DEFAULT NULL AFTER `reviewed_at`;
+ALTER TABLE `mdt_warrant_requests` ADD COLUMN IF NOT EXISTS `executed_by_name` varchar(100) DEFAULT NULL AFTER `executed_by`;
+ALTER TABLE `mdt_warrant_requests` ADD COLUMN IF NOT EXISTS `executed_at` timestamp NULL DEFAULT NULL AFTER `executed_by_name`;
+ALTER TABLE `mdt_warrant_requests` MODIFY COLUMN `status` enum('pending','approved','executed','denied') NOT NULL DEFAULT 'pending';
 
 -- DOJ Warrant Reviews (audit log)
 CREATE TABLE IF NOT EXISTS `mdt_warrant_reviews` (

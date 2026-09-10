@@ -23,6 +23,19 @@ RegisterNUICallback('getReports', function(data, cb)
     end
 end)
 
+RegisterNUICallback('searchReports', function(data, cb)
+    if not MDTOpen then
+        cb({})
+        return
+    end
+
+    data = data or {}
+    local query = tostring(data.query or '')
+    local limit = tonumber(data.limit) or 10
+    local reports = ps.callback(resourceName .. ':server:searchReports', query, limit)
+    cb(reports or {})
+end)
+
 RegisterNUICallback('getReportAnalytics', function(data, cb)
     if not MDTOpen then
         cb({ success = false, message = 'MDT is not open' })

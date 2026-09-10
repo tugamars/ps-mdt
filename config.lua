@@ -240,6 +240,8 @@ Config.ManagementPermissions = {
     -- Warrants
     'warrants_view',
     'warrants_issue',
+    'warrants_review',
+    'warrants_approve',
     'warrants_close',
     -- Charges
     'charges_view',

@@ -127,7 +127,7 @@ RegisterNUICallback('getActiveWarrants', function(_, cb)
         cb({ success = false, message = 'MDT is not open' })
         return
     end
-    local activeWarrants = ps.callback(resourceName .. ':server:getActiveWarrants')
+    local activeWarrants = ps.callback(resourceName .. ':server:getActiveWarrants', false)
 
     -- ps.debug('[getActiveWarrants] Triggered NUI callback on client',activeWarrants)
     cb(activeWarrants)

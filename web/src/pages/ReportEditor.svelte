@@ -433,19 +433,23 @@
 
 	async function issueWarrant(suspect: Report["involved"]["suspects"][number]) {
 		if (!suspect.citizenid) return;
-		if (!report.reportId) {
-			showStatus("Save the report before issuing warrants", "error");
-			return;
-		}
 		try {
+			// Persist the complete report first so the warrant request always references
+			// a real report and includes the latest edits.
+			isSaving = true;
+			await reportService.saveReport(report);
+			isSaving = false;
+			if (!report.reportId) throw new Error("Report was not saved");
+
 			await reportService.issueWarrant(report.reportId, suspect.citizenid);
 			handlers.handleUpdateSuspect({
 				...suspect,
 				warrantActive: true,
 			});
 			await fetchNui(NUI_EVENTS.DASHBOARD.GET_ACTIVE_WARRANTS);
-			showStatus(`Warrant issued for ${suspect.fullName}`);
+			showStatus(`Warrant submitted for approval for ${suspect.fullName}`);
 		} catch (error: any) {
+			isSaving = false;
 			showStatus(error?.message || `Failed to issue warrant for ${suspect.fullName}`, "error");
 		}
 	}
@@ -622,6 +626,7 @@
 				.map((c) => c.charge || c.title || 'Unknown Charge');
 
 			const payload = {
+				warrant_type: "bench",
 				citizenid: suspect.citizenid,
 				citizen_name: suspect.fullName,
 				charges: JSON.stringify(suspectCharges),
@@ -1017,6 +1022,7 @@
 				onRemove={handlers.handleRemoveSuspect}
 				onUpdate={handlers.handleUpdateSuspect}
 				onIssueWarrant={issueWarrant}
+				onCloseWarrant={closeWarrant}
 				onIssueBenchWarrant={jobType === 'leo' ? openBenchWarrantModal : undefined}
 				onIssueBolo={issueBolo}
 				onTakeMugshot={triggerSuspectMugshot}

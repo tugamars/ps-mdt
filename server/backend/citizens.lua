@@ -386,6 +386,12 @@ ps.registerCallback(resourceName .. ':server:searchCitizens', function(source, q
         flagsByCid = {}
     end
 
+    local okt, tagsByCid = pcall(collectCitizenTags, citizenids)
+    if not okt then
+        ps.warn('[searchCitizens] collectCitizenTags failed: ' .. tostring(tagsByCid))
+        tagsByCid = {}
+    end
+
     -- Batch fetch profile pictures, property counts, vehicle counts, and arrest counts
     local profilePics = {}
     local propCounts = {}

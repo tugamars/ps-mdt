@@ -42,7 +42,7 @@ local function getExpiryDate(value)
     return nil
 end
 
-ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source)
+ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source, includeInactive)
     local src = source
     if not CheckAuth(src) then return {} end
 
@@ -59,14 +59,15 @@ ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source
             %s AS lastname
         FROM mdt_reports_warrants w
         LEFT JOIN %s %s ON %s = w.citizenid
-        WHERE w.expirydate >= NOW()
+        WHERE (? = 1 OR w.expirydate >= NOW())
         ORDER BY w.expirydate ASC
     ]]):format(
         _P.fields.firstname,
         _P.fields.lastname,
         _P.table, _P.alias,
-        _P.alias .. '.' .. _P.joinKey
-    ))
+        _P.alias .. '.' .. _P.joinKey,
+        includeInactive and 1 or 0
+    ), { includeInactive and 1 or 0 })
 
     local results = {}
     for _, row in ipairs(rows or {}) do
@@ -82,6 +83,7 @@ ps.registerCallback(resourceName .. ':server:getActiveWarrants', function(source
             misdemeanors = tonumber(row.misdemeanors) or 0,
             infractions = tonumber(row.infractions) or 0,
             expirydate = row.expirydate,
+            active = row.expirydate and tostring(row.expirydate) > os.date('%Y-%m-%d %H:%M:%S') or false,
         }
     end
 
@@ -91,6 +93,7 @@ end)
 ps.registerCallback(resourceName .. ':server:issueWarrant', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+    if not CheckPermission(src, 'warrants_issue') then return { success = false, error = 'Missing permission: warrants_issue' } end
 
     data = data or {}
     local reportId = tonumber(data.reportId)
@@ -106,29 +109,51 @@ ps.registerCallback(resourceName .. ':server:issueWarrant', function(source, dat
         return { success = false, error = 'Missing required fields' }
     end
 
-    local existing = MySQL.single.await('SELECT reportid FROM mdt_reports_warrants WHERE reportid = ? AND citizenid = ?', { reportId, citizenid })
-    if existing and existing.reportid then
-        return { success = false, error = 'An active warrant already exists for this subject on this report' }
-    else
-        MySQL.insert.await([[
-            INSERT INTO mdt_reports_warrants (reportid, citizenid, felonies, misdemeanors, infractions, expirydate)
-            VALUES (?, ?, 0, 0, 0, ?)
-        ]], { reportId, citizenid, expiryDate })
+    local reportCharges = MySQL.query.await([[SELECT charge FROM mdt_reports_charges WHERE reportid = ? AND citizenid = ?]], { reportId, citizenid }) or {}
+    if #reportCharges == 0 then return { success = false, error = 'Add at least one charge for this suspect before issuing a warrant' } end
+    local chargeNames = {}
+    for _, charge in ipairs(reportCharges) do chargeNames[#chargeNames + 1] = charge.charge end
+
+    local existing = MySQL.single.await([[SELECT id FROM mdt_warrant_requests
+        WHERE linked_report_id = ? AND citizenid = ? AND status = 'pending']], { reportId, citizenid })
+    if existing then return { success = true, pending = true, requestId = existing.id } end
+
+    local citizenName = ''
+    if TableMap and TableMap.Players then
+        local p = TableMap.Players
+        local row = MySQL.single.await(([[SELECT %s AS firstname, %s AS lastname FROM %s WHERE %s = ? LIMIT 1]]):format(
+            p.rawFields.firstname, p.rawFields.lastname, p.table, p.joinKey
+        ), { citizenid })
+        if row then citizenName = ((row.firstname or '') .. ' ' .. (row.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '') end
     end
+    local job = ps.getJobData and ps.getJobData(src) or {}
+    local grade = type(job.grade) == 'table' and (job.grade.name or job.grade.label or job.grade.title) or nil
+    local department = job.label or job.department or job.name
+    local officerName = ps.getPlayerName(src) or 'Unknown'
+    if grade and grade ~= '' then officerName = officerName .. ' · ' .. grade end
+    if department and department ~= '' and department ~= job.name then officerName = officerName .. ' · ' .. department end
+
+    local requestId = MySQL.insert.await([[
+        INSERT INTO mdt_warrant_requests
+            (warrant_type, citizenid, citizen_name, target_text, requesting_officer, officer_name, charges, reason, linked_report_id, status)
+        VALUES ('arrest', ?, ?, '', ?, ?, ?, ?, ?, 'pending')
+    ]], { citizenid, citizenName, ps.getIdentifier(src), officerName, json.encode(chargeNames), 'Arrest warrant submitted from report for approval', reportId })
+    if not requestId then return { success = false, error = 'Failed to submit warrant for approval' } end
 
     if ps.auditLog then
-        ps.auditLog(src, 'warrant_issued', 'warrant', reportId, {
+        ps.auditLog(src, 'warrant_submitted', 'warrant', reportId, {
             citizenid = citizenid,
             expirydate = expiryDate
         })
     end
 
-    return { success = true }
+    return { success = true, pending = true, requestId = requestId }
 end)
 
 ps.registerCallback(resourceName .. ':server:closeWarrant', function(source, data)
     local src = source
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+    if not CheckPermission(src, 'warrants_close') then return { success = false, error = 'Missing permission: warrants_close' } end
 
     data = data or {}
     local reportId = tonumber(data.reportId)
@@ -142,6 +167,11 @@ ps.registerCallback(resourceName .. ':server:closeWarrant', function(source, dat
         SET expirydate = NOW()
         WHERE reportid = ? AND citizenid = ?
     ]], { reportId, citizenid })
+
+    -- Also cancel a request that has not yet been approved. The report remains intact.
+    MySQL.update.await([[UPDATE mdt_warrant_requests
+        SET status = 'denied', review_reason = 'Removed by authorized user', reviewed_at = NOW()
+        WHERE linked_report_id = ? AND citizenid = ? AND status = 'pending']], { reportId, citizenid })
 
     if updated and updated > 0 then
         if ps.auditLog then

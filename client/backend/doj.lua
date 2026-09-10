@@ -71,9 +71,16 @@ RegisterNUICallback('getWarrantRequests', function(data, cb)
         resourceName .. ':server:getWarrantRequests',
         data.page or 1,
         data.limit or 20,
-        data.status or 'all'
+        data.status or 'all',
+        data.search or '',
+        data.mine == true
     )
     cb(result or { requests = {}, total = 0 })
+end)
+
+RegisterNUICallback('executeWarrantRequest', function(data, cb)
+    if not MDTOpen or not data or not data.request_id then cb({ success = false, message = 'Missing request ID' }) return end
+    cb(ps.callback(resourceName .. ':server:executeWarrantRequest', data.request_id) or { success = false })
 end)
 
 RegisterNUICallback('createWarrantRequest', function(data, cb)

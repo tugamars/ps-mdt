@@ -69,6 +69,8 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
 		permissions: [
 			{ key: "warrants_view", label: "View Warrants", description: "View active warrants" },
 			{ key: "warrants_issue", label: "Issue Warrants", description: "Issue warrants on suspects" },
+			{ key: "warrants_review", label: "Review Warrants", description: "Access warrant review and approve or deny pending requests" },
+			{ key: "warrants_approve", label: "Approve Warrants", description: "Approve or deny pending warrants" },
 			{ key: "warrants_close", label: "Close Warrants", description: "Close active warrants" },
 		],
 	},

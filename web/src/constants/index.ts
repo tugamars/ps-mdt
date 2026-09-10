@@ -74,7 +74,7 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
 	{ id: "dashboard", tabs: ["Dashboard"] },
-	{ id: "operations", label: "Operations", icon: "assignment", tabs: ["Reports", "Cases", "Evidence", "BOLOs", "Warrants"] },
+	{ id: "operations", label: "Operations", icon: "assignment", tabs: ["Reports", "Cases", "Evidence", "BOLOs", "Warrants", "Warrant Review"] },
 	{ id: "records", label: "Records", icon: "folder_open", tabs: ["Citizens", "Vehicles", "Weapons", "Charges"] },
 	{ id: "personnel", label: "Personnel", icon: "badge", tabs: ["Roster", "Awards", "IA", "PPR", "FTO", "SOP"] },
 	{ id: "surveillance", label: "Surveillance", icon: "visibility", tabs: ["Map", "Cameras", "Bodycams"] },

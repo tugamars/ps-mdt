@@ -12,12 +12,17 @@ local function buildOrderNumber(id)
 end
 
 local function getDisplayName(src)
-    local callsign = ps.getMetadata(src, 'callsign')
-    local name = ps.getPlayerName(src) or 'Unknown'
-    if callsign and callsign ~= '' then
-        return callsign .. ' ' .. name
-    end
-    return name
+    local job = ps.getJobData and ps.getJobData(src) or {}
+    local grade = type(job.grade) == 'table' and (job.grade.name or job.grade.label or job.grade.title) or nil
+    local department = job.label or job.name or job.department
+    local details = { ps.getPlayerName(src) or 'Unknown' }
+    if grade and grade ~= '' then details[#details + 1] = grade end
+    if department and department ~= '' and department ~= job.name then details[#details + 1] = department end
+    return table.concat(details, ' · ')
+end
+
+local function CanReviewWarrants(src)
+    return CheckPermission(src, 'warrants_review') or CheckPermission(src, 'warrants_approve')
 end
 
 -- Court Cases
@@ -189,9 +194,13 @@ ps.registerCallback(resourceName .. ':server:updateCourtCase', function(source, 
 end)
 
 -- Warrant Requests
-ps.registerCallback(resourceName .. ':server:getWarrantRequests', function(source, page, limit, status)
+ps.registerCallback(resourceName .. ':server:getWarrantRequests', function(source, page, limit, status, search, mine)
     local src = source
     if not CheckAuth(src) then return { requests = {}, total = 0 } end
+    if status == 'pending' and not CanReviewWarrants(src) then return { requests = {}, total = 0 } end
+    local canReview = CanReviewWarrants(src)
+    local ownRequests = status == 'mine' and mine == true
+    if (status == 'executed' or status == 'denied') and not canReview and not ownRequests then return { requests = {}, total = 0 } end
 
     page = tonumber(page) or 1
     limit = tonumber(limit) or 20
@@ -201,9 +210,18 @@ ps.registerCallback(resourceName .. ':server:getWarrantRequests', function(sourc
     local clauses = {}
     local values = {}
 
-    if status and status ~= '' and status ~= 'all' then
+    if ownRequests then
+        clauses[#clauses + 1] = "status IN ('pending', 'executed', 'denied')"
+        clauses[#clauses + 1] = 'requesting_officer = ?'
+        values[#values + 1] = ps.getIdentifier(src)
+    elseif status and status ~= '' and status ~= 'all' then
         clauses[#clauses + 1] = 'status = ?'
         values[#values + 1] = status
+    end
+    if search and search ~= '' then
+        clauses[#clauses + 1] = '(citizen_name LIKE ? OR citizenid LIKE ? OR target_text LIKE ? OR CAST(linked_report_id AS CHAR) LIKE ?)'
+        local term = '%' .. search .. '%'
+        for _ = 1, 4 do values[#values + 1] = term end
     end
 
     local whereClause = ''
@@ -223,14 +241,38 @@ ps.registerCallback(resourceName .. ':server:getWarrantRequests', function(sourc
     values[#values + 1] = offset
 
     local rows = MySQL.query.await(([[
-        SELECT id, citizenid, citizen_name, requesting_officer, officer_name,
-               charges, reason, linked_report_id, status,
+        SELECT id, warrant_type, citizenid, citizen_name, target_text, requesting_officer, officer_name,
+               charges, reason, linked_report_id, status, executed_by_name, executed_at,
                reviewer_citizenid, reviewer_name, review_reason, reviewed_at, created_at
         FROM mdt_warrant_requests
         %s
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
     ]]):format(whereClause), values)
+
+    for _, row in ipairs(rows or {}) do
+        -- Profile data is the durable source for historical requests, including
+        -- requests created before officer_name began storing rank/department.
+        local profile = MySQL.single.await([[SELECT fullname, `rank`, department
+            FROM mdt_profiles WHERE citizenid = ? LIMIT 1]], { row.requesting_officer })
+        if profile and profile.fullname and profile.fullname ~= '' then
+            local department = profile.department or ''
+            local sharedJob = department ~= '' and ps.getSharedJob and ps.getSharedJob(department) or nil
+            department = (sharedJob and (sharedJob.label or sharedJob.name)) or department
+            local details = { profile.fullname }
+            if profile.rank and profile.rank ~= '' then details[#details + 1] = profile.rank end
+            if department ~= '' then details[#details + 1] = department end
+            row.officer_name = table.concat(details, ' · ')
+        elseif (not row.officer_name or row.officer_name == '' or row.officer_name == row.requesting_officer) and TableMap and TableMap.Players then
+            local p = TableMap.Players
+            local officer = MySQL.single.await(([[SELECT %s AS firstname, %s AS lastname FROM %s WHERE %s = ? LIMIT 1]]):format(
+                p.rawFields.firstname, p.rawFields.lastname, p.table, p.joinKey
+            ), { row.requesting_officer })
+            if officer then
+                row.officer_name = ((officer.firstname or '') .. ' ' .. (officer.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+            end
+        end
+    end
 
     return { requests = rows or {}, total = total }
 end)
@@ -240,40 +282,60 @@ ps.registerCallback(resourceName .. ':server:createWarrantRequest', function(sou
     if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
 
     payload = payload or {}
+    local warrant_type = payload.warrant_type or 'arrest'
     local citizenid = payload.citizenid
     local citizen_name = payload.citizen_name or ''
+    local target_text = payload.target_text or ''
     local charges = payload.charges or '[]'
     local reason = payload.reason
     local linked_report_id = payload.linked_report_id and tonumber(payload.linked_report_id) or nil
 
-    if not citizenid or citizenid == '' then
-        return { success = false, error = 'Missing citizen ID' }
+    if warrant_type ~= 'arrest' and warrant_type ~= 'search' and warrant_type ~= 'bench' then
+        return { success = false, error = 'Invalid warrant type' }
+    end
+    if warrant_type == 'search' then
+        if target_text == '' then return { success = false, error = 'A search warrant target is required' } end
+        citizenid, citizen_name = '', target_text
+    elseif not citizenid or citizenid == '' then
+        return { success = false, error = 'A citizen target is required' }
     end
 
     if not reason or reason == '' then
         return { success = false, error = 'A reason/justification is required' }
     end
+    if not linked_report_id then return { success = false, error = 'An attached report is required' } end
+    if not MySQL.single.await('SELECT id FROM mdt_reports WHERE id = ?', { linked_report_id }) then
+        return { success = false, error = 'Attached report was not found' }
+    end
+    if type(charges) == 'table' then charges = json.encode(charges) end
+    if (warrant_type == 'arrest' or warrant_type == 'bench') and (not charges or charges == '' or charges == '[]') then
+        return { success = false, error = 'At least one charge is required for arrest and bench warrants' }
+    end
 
     local requesting_officer = ps.getIdentifier(src)
     local officer_name = getDisplayName(src)
 
-    -- Prevent duplicate pending request for same citizen on same report
-    if linked_report_id then
-        local existing = MySQL.single.await([[
-            SELECT id FROM mdt_warrant_requests
-            WHERE citizenid = ? AND linked_report_id = ? AND status = 'pending'
-            LIMIT 1
-        ]], { citizenid, linked_report_id })
-        if existing then
-            return { success = false, error = 'A pending bench warrant request already exists for this citizen on this report' }
+    if citizen_name == '' and TableMap and TableMap.Players then
+        local p = TableMap.Players
+        local citizen = MySQL.single.await(([[SELECT %s AS firstname, %s AS lastname
+            FROM %s WHERE %s = ? LIMIT 1]]):format(
+            p.rawFields.firstname, p.rawFields.lastname, p.table, p.joinKey
+        ), { citizenid })
+        if citizen then
+            citizen_name = ((citizen.firstname or '') .. ' ' .. (citizen.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
         end
     end
 
+    local existing = MySQL.single.await([[SELECT id FROM mdt_warrant_requests
+        WHERE citizenid = ? AND target_text = ? AND linked_report_id = ? AND warrant_type = ? AND status = 'pending' LIMIT 1
+    ]], { citizenid, target_text, linked_report_id, warrant_type })
+    if existing then return { success = false, error = 'An identical pending warrant request already exists' } end
+
     local id = MySQL.insert.await([[
         INSERT INTO mdt_warrant_requests
-        (citizenid, citizen_name, requesting_officer, officer_name, charges, reason, linked_report_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-    ]], { citizenid, citizen_name, requesting_officer, officer_name, charges, reason, linked_report_id })
+        (warrant_type, citizenid, citizen_name, target_text, requesting_officer, officer_name, charges, reason, linked_report_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    ]], { warrant_type, citizenid, citizen_name, target_text, requesting_officer, officer_name, charges, reason, linked_report_id })
 
     if not id then
         return { success = false, error = 'Failed to create warrant request' }
@@ -281,7 +343,7 @@ ps.registerCallback(resourceName .. ':server:createWarrantRequest', function(sou
 
     if ps.auditLog then
         ps.auditLog(src, 'warrant_request_created', 'warrant_request', id, {
-            citizenid = citizenid,
+            citizenid = citizenid, warrant_type = warrant_type,
             linked_report_id = linked_report_id
         })
     end
@@ -290,8 +352,9 @@ ps.registerCallback(resourceName .. ':server:createWarrantRequest', function(sou
 end)
 
 ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(source, request_id, decision, reason)
-    local src = source
-    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+	local src = source
+	if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+	if not CanReviewWarrants(src) then return { success = false, error = 'Missing permission: warrants_review' } end
 
     request_id = tonumber(request_id)
     if not request_id then return { success = false, error = 'Invalid request id' } end
@@ -321,8 +384,8 @@ ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(sou
         VALUES (?, ?, ?, ?, ?)
     ]], { request_id, reviewerCitizenid, reviewerName, decision, reason or '' })
 
-    -- If approved and there is a linked report, create a real warrant in mdt_reports_warrants
-    if decision == 'approved' and request.linked_report_id then
+    -- Keep existing active-warrant integrations working for citizen-based warrants.
+    if decision == 'approved' and request.linked_report_id and request.warrant_type ~= 'search' and request.citizenid ~= '' then
         local reportId = tonumber(request.linked_report_id)
         if reportId then
             local reportExists = MySQL.single.await('SELECT id FROM mdt_reports WHERE id = ?', { reportId })
@@ -344,6 +407,24 @@ ps.registerCallback(resourceName .. ':server:reviewWarrantRequest', function(sou
         })
     end
 
+    return { success = true }
+end)
+
+ps.registerCallback(resourceName .. ':server:executeWarrantRequest', function(source, request_id)
+    local src = source
+    if not CheckAuth(src) then return { success = false, error = 'Unauthorized' } end
+    if not CheckPermission(src, 'warrants_close') then return { success = false, error = 'Missing permission: warrants_close' } end
+    request_id = tonumber(request_id)
+    if not request_id then return { success = false, error = 'Invalid warrant id' } end
+    local request = MySQL.single.await('SELECT * FROM mdt_warrant_requests WHERE id = ? AND status = ?', { request_id, 'approved' })
+    if not request then return { success = false, error = 'Warrant not found or is not approved' } end
+    MySQL.update.await([[UPDATE mdt_warrant_requests SET status = 'executed', executed_by = ?, executed_by_name = ?, executed_at = NOW() WHERE id = ?]], {
+        ps.getIdentifier(src), getDisplayName(src), request_id
+    })
+    if request.linked_report_id and request.citizenid and request.citizenid ~= '' then
+        MySQL.update.await('UPDATE mdt_reports_warrants SET expirydate = NOW() WHERE reportid = ? AND citizenid = ?', { request.linked_report_id, request.citizenid })
+    end
+    if ps.auditLog then ps.auditLog(src, 'warrant_executed', 'warrant_request', request_id, { citizenid = request.citizenid }) end
     return { success = true }
 end)
 
