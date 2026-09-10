@@ -35,6 +35,7 @@
 		time: number;
 	}>({ code: "", label: "", description: "", fine: 0, time: 0 });
 	let isSaving = $state(false);
+	let pendingDelete = $state<Charge | null>(null);
 
 	function startEdit(charge: Charge) {
 		editingCode = charge.code || null;
@@ -77,10 +78,15 @@
 
 	async function deleteCharge(charge: Charge) {
 		if (isSaving || !onDelete) return;
-		if (!window.confirm(`Delete ${charge.code || charge.label}?`)) return;
+		pendingDelete = charge;
+	}
+
+	async function confirmDeleteCharge(charge: Charge) {
+		if (isSaving || !onDelete) return;
 		isSaving = true;
 		await onDelete(charge);
 		isSaving = false;
+		pendingDelete = null;
 	}
 
 	function handleKeydown(event: KeyboardEvent, charge: Charge) {
@@ -242,17 +248,17 @@
 										<span class="material-icons edit-hint-icon">edit</span>
 									{/if}
 									{#if canDelete}
-										<button
-											class="btn-delete"
-											onclick={(event) => {
-												event.stopPropagation();
-												deleteCharge(charge);
-											}}
-											disabled={isSaving}
-											title="Delete charge"
-										>
-											<span class="material-icons">delete</span>
-										</button>
+										{#if pendingDelete?.code === charge.code}
+											<span class="delete-confirm" onclick={(event) => event.stopPropagation()}>
+												<span>Delete?</span>
+												<button class="btn-confirm-delete" onclick={() => confirmDeleteCharge(charge)} disabled={isSaving}>Yes</button>
+												<button class="btn-cancel-delete" onclick={() => (pendingDelete = null)} disabled={isSaving}>No</button>
+											</span>
+										{:else}
+											<button class="btn-delete" onclick={(event) => { event.stopPropagation(); deleteCharge(charge); }} disabled={isSaving} title="Delete charge">
+												<span class="material-icons">delete</span>
+											</button>
+										{/if}
 									{/if}
 								</span>
 							{/if}

@@ -89,8 +89,10 @@
 	}
 
 	function handleDefendantSelect(person: SearchResult) {
-		newCase.defendant_citizenid = person.citizenid || person.id;
-		newCase.defendant_name = person.fullName;
+		// Search results may provide numeric IDs; keep form state string-valued
+		// because the submit handler trims these fields before sending the NUI request.
+		newCase.defendant_citizenid = String(person.citizenid || person.id || "");
+		newCase.defendant_name = String(person.fullName || "");
 		showDefendantSearch = false;
 		defendantSearchResults = [];
 	}
@@ -281,19 +283,24 @@
 	}
 
 	async function handleCreateCase() {
+		console.log(newCase , newCase.title, newCase.title.trim());
+		console.log(!newCase.title.trim());
 		if (!newCase.title.trim()) return;
+		console.log("Is loading");
 		isLoading = true;
 		try {
+			console.log("Sending nui request");
 			const result = await fetchNui<{ success: boolean; id?: number; error?: string }>(
 				NUI_EVENTS.DOJ.CREATE_COURT_CASE,
 				{
 					title: newCase.title.trim(),
 					case_type: newCase.case_type,
-					defendant_citizenid: newCase.defendant_citizenid.trim(),
-					defendant_name: newCase.defendant_name.trim(),
+					defendant_citizenid: String(newCase.defendant_citizenid ?? "").trim(),
+					defendant_name: String(newCase.defendant_name ?? "").trim(),
 				},
 				{ success: true, id: Math.floor(Math.random() * 1000) },
 			);
+			console.log("Result", result);
 			if (result.success) {
 				showCreateModal = false;
 				newCase = { title: "", case_type: "criminal", defendant_citizenid: "", defendant_name: "" };
@@ -302,7 +309,8 @@
 			} else {
 				globalNotifications.error(result.error || "Failed to create court case");
 			}
-		} catch {
+		} catch (error) {
+			console.error("[CourtCases] createCourtCase failed:", error);
 			globalNotifications.error("Failed to create court case");
 		}
 		isLoading = false;
