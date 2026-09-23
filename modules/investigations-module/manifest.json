@@ -1,0 +1,54 @@
+{
+  "id": "investigations-module",
+  "name": "Investigations",
+  "author": "tugamars",
+  "version": "1.1.0",
+  "dependencies": [
+    {
+      "resource": "tugamars_csi-evidence",
+      "required": false
+    }
+  ],
+  "permissions": [
+    {
+      "id": "investigations-module.view",
+      "label": "View Investigations",
+      "description": "Open the investigations module",
+      "category": "evidence"
+    },
+    {
+      "id": "investigations-module.import",
+      "label": "Import Investigation Photos",
+      "description": "Import photos from SD cards into case evidence or attachments",
+      "category": "evidence"
+    },
+    {
+      "id": "investigations-module.property_search",
+      "label": "Search Investigation Properties",
+      "description": "Look up property owners by street and property number",
+      "category": "evidence"
+    },
+    {
+      "id": "investigations-module.interview_import",
+      "label": "Import Witness Interviews",
+      "description": "Import witness interviews from the evidence system into case evidence",
+      "category": "evidence"
+    }
+  ],
+  "tabs": [
+    {
+      "id": "investigation-photos",
+      "name": "Investigations",
+      "icon": "search",
+      "component": "module_page",
+      "permissions": [
+        "investigations-module.view"
+      ],
+      "jobs": [
+        "leo",
+        "doj"
+      ],
+      "group": "operations"
+    }
+  ]
+}
