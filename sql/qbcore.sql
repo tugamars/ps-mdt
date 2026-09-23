@@ -55,12 +55,14 @@ CREATE TABLE IF NOT EXISTS `mdt_messages` (
 
 CREATE TABLE IF NOT EXISTS `mdt_penal_codes` (
   `code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `code_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'penal',
   `label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `charge_class` enum('felony','misdemeanor','infraction') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `months` int(10) unsigned NOT NULL DEFAULT 0,
   `fine` int(10) unsigned NOT NULL DEFAULT 0,
   `color` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `expanded_definition` longtext DEFAULT NULL,
   PRIMARY KEY (`code`),
   KEY `label` (`label`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

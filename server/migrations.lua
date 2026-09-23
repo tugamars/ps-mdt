@@ -13,6 +13,12 @@ CreateThread(function()
     if not columnExists('mdt_profiles', 'officer_email') then
         MySQL.query.await('ALTER TABLE `mdt_profiles` ADD COLUMN `officer_email` varchar(120) NULL AFTER `officer_phone`')
     end
+    if not columnExists('mdt_penal_codes', 'code_type') then
+        MySQL.query.await("ALTER TABLE `mdt_penal_codes` ADD COLUMN `code_type` varchar(32) NOT NULL DEFAULT 'penal' AFTER `code`")
+    end
+    if not columnExists('mdt_penal_codes', 'expanded_definition') then
+        MySQL.query.await("ALTER TABLE `mdt_penal_codes` ADD COLUMN `expanded_definition` longtext NULL AFTER `description`")
+    end
 
     -- Warrant requests were originally report/citizen-only. Keep existing MDT
     -- databases compatible with the standalone warrant workflow.

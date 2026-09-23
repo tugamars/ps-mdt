@@ -68,6 +68,8 @@ export interface ReportCharge {
 	citizenid: string;
 	suspectName: string;
 	charge: string;
+	codeType?: string;
+	codeTypeLabel?: string;
 	count: number;
 	time: number;
 	fine: number;

@@ -8,6 +8,7 @@
 	import type { AuthService } from "../services/authService.svelte";
 
 	import ChargeType from "../components/ChargeType.svelte";
+	import ChargeDefinitionEditor from "../components/ChargeDefinitionEditor.svelte";
 
 	import type { Charge, GroupedCharges } from "./../interfaces/ICharges";
 
@@ -16,6 +17,8 @@
 	let charges = $state<Charge[]>([]);
 	let hasLoadedCharges = $state(false);
 	let searchQuery = $state("");
+	let codeTypeFilter = $state("all");
+	let codeTypes = $state<Array<{ value: string; label: string }>>([{ value: "penal", label: "Penal Code" }]);
 	let isLoading = $state(false);
 	let isEditing = $state(false);
 	let showAddForm = $state(false);
@@ -28,6 +31,8 @@
 		fine: 0,
 		type: "infraction",
 		category: "Uncategorized",
+		codeType: "penal",
+		expandedDefinition: "",
 	});
 
 	let canEdit = $derived(authService?.hasPermission("charges_edit") ?? false);
@@ -41,13 +46,12 @@
 
 	let filteredCharges = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
-		return !query
-			? charges
-			: charges.filter(({ label, description, category }) =>
-					[label, description, category].some((val) =>
-						val.toLowerCase().includes(query),
-					),
-				);
+		return charges.filter((charge) => {
+			const matchesQuery = !query || [charge.label, charge.description, charge.category, charge.code, charge.codeTypeLabel]
+				.some((value) => String(value || "").toLowerCase().includes(query));
+			const matchesCodeType = codeTypeFilter === "all" || (charge.codeType || "penal") === codeTypeFilter;
+			return matchesQuery && matchesCodeType;
+		});
 	});
 
 	let groupedCharges = $derived.by(() => {
@@ -106,6 +110,7 @@
 			];
 		} else {
 			loadCharges();
+			loadCodeTypes();
 		}
 	});
 
@@ -117,6 +122,9 @@
 			...source,
 			description: source.description || "",
 			category: source.category || "Uncategorized",
+			codeType: source.codeType || "penal",
+			codeTypeLabel: source.codeTypeLabel || (source.codeType === "ucmj" ? "UCMJ" : source.codeType === "traffic" ? "Traffic Code" : "Penal Code"),
+			expandedDefinition: source.expandedDefinition || "",
 			time: Number.isFinite(timeValue) ? timeValue : 0,
 			fine: Number.isFinite(fineValue) ? fineValue : 0,
 		};
@@ -128,6 +136,11 @@
 		hasLoadedCharges = true;
 	});
 
+	async function loadCodeTypes() {
+		const response = await fetchNui<Array<{ value: string; label: string }>>(NUI_EVENTS.CHARGE.GET_CHARGE_CODE_TYPES, {}, codeTypes);
+		if (Array.isArray(response) && response.length) codeTypes = response;
+	}
+
 	function toggleCollapse(type: Charge["type"]) {
 		collapsedState[type] = !collapsedState[type];
 	}
@@ -136,6 +149,8 @@
 		try {
 			const result = await fetchNui(NUI_EVENTS.CHARGE.UPDATE_CHARGE, {
 				code: charge.code,
+				...(payload.codeType !== undefined ? { codeType: payload.codeType } : {}),
+				expandedDefinition: payload.expandedDefinition ?? charge.expandedDefinition ?? "",
 				label: payload.label ?? charge.label,
 				fine: payload.fine ?? charge.fine,
 				time: payload.time ?? charge.time,
@@ -150,6 +165,9 @@
 								fine: payload.fine ?? item.fine,
 								time: payload.time ?? item.time,
 								description: payload.description ?? item.description,
+								codeType: payload.codeType ?? item.codeType,
+								codeTypeLabel: codeTypes.find((codeType) => codeType.value === (payload.codeType ?? charge.codeType))?.label ?? charge.codeTypeLabel,
+								expandedDefinition: payload.expandedDefinition ?? item.expandedDefinition,
 							}
 						: item,
 				);
@@ -192,6 +210,8 @@
 					time: 0,
 					fine: 0,
 					type: "infraction",
+					codeType: "penal",
+					expandedDefinition: "",
 					category: "Uncategorized",
 				};
 				showAddForm = false;
@@ -259,6 +279,10 @@
 			class="search-input"
 		/>
 		<div class="topbar-right">
+			<select class="code-type-filter" bind:value={codeTypeFilter} aria-label="Filter by code type">
+				<option value="all">All code types</option>
+				{#each codeTypes as codeType}<option value={codeType.value}>{codeType.label}</option>{/each}
+			</select>
 			<span class="result-count">{filteredCharges.length} charge{filteredCharges.length !== 1 ? "s" : ""}</span>
 			<button
 				class="btn-secondary"
@@ -293,6 +317,12 @@
 	<div class="charges-content">
 		{#if showAddForm}
 			<div class="add-panel">
+				<label class="add-field">
+					<span>Code type</span>
+					<select bind:value={newCharge.codeType}>
+						{#each codeTypes as codeType}<option value={codeType.value}>{codeType.label}</option>{/each}
+					</select>
+				</label>
 				<input type="text" placeholder="Code" bind:value={newCharge.code} />
 				<input type="text" placeholder="Charge name" bind:value={newCharge.label} />
 				<select bind:value={newCharge.type}>
@@ -303,6 +333,10 @@
 				<input type="number" min="0" placeholder="Fine" bind:value={newCharge.fine} />
 				<input type="number" min="0" placeholder="Months" bind:value={newCharge.time} />
 				<input type="text" placeholder="Description" bind:value={newCharge.description} />
+				<label class="expanded-definition-field">
+					<span>Expanded definition</span>
+					<ChargeDefinitionEditor content={newCharge.expandedDefinition} onUpdate={(value) => (newCharge.expandedDefinition = value)} />
+				</label>
 				<button class="btn-save-add" onclick={addCharge}>Save</button>
 				{#if addError}
 					<span class="add-error">{addError}</span>
@@ -335,6 +369,7 @@
 					onDelete={deleteCharge}
 					{isEditing}
 					canDelete={canManage}
+					{codeTypes}
 				/>
 			{/if}
 
@@ -349,6 +384,7 @@
 					onDelete={deleteCharge}
 					{isEditing}
 					canDelete={canManage}
+					{codeTypes}
 				/>
 			{/if}
 
@@ -363,6 +399,7 @@
 					onDelete={deleteCharge}
 					{isEditing}
 					canDelete={canManage}
+					{codeTypes}
 				/>
 			{/if}
 		{/if}
@@ -412,6 +449,17 @@
 		align-items: center;
 		gap: 8px;
 		margin-left: auto;
+	}
+
+	.code-type-filter {
+		max-width: 130px;
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		border-radius: 3px;
+		padding: 4px 6px;
+		color: rgba(255, 255, 255, 0.65);
+		font-size: 10px;
+		color-scheme: dark;
 	}
 
 	.result-count {
@@ -479,7 +527,7 @@
 
 	.add-panel {
 		display: grid;
-		grid-template-columns: 90px 1.2fr 130px 90px 90px 2fr auto;
+		grid-template-columns: 120px 90px 1.2fr 130px 90px 90px 2fr auto;
 		gap: 8px;
 		align-items: center;
 		padding: 10px 16px;
@@ -497,6 +545,21 @@
 		color: rgba(255, 255, 255, 0.8);
 		font-size: 11px;
 	}
+
+	.add-field {
+		display: grid;
+		gap: 2px;
+		min-width: 0;
+		color: rgba(255, 255, 255, 0.38);
+		font-size: 9px;
+	}
+
+	.add-field select {
+		width: 100%;
+	}
+
+	.expanded-definition-field { grid-column: 1 / -1; display: grid; gap: 3px; color: rgba(255,255,255,.38); font-size: 9px; }
+	.definition-editor { min-height: 74px; padding: 7px; border: 1px solid rgba(255,255,255,.08); border-radius: 3px; background: rgba(255,255,255,.04); color: rgba(255,255,255,.8); font-size: 11px; line-height: 1.4; outline: none; overflow: auto; }
 
 	.add-panel select {
 		color-scheme: dark;

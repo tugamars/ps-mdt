@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Charge } from "./../interfaces/ICharges";
+	import ChargeDefinitionEditor from "./ChargeDefinitionEditor.svelte";
 
 	interface Props {
 		type: Charge["type"];
@@ -11,6 +12,7 @@
 		colorClass?: string;
 		isEditing?: boolean;
 		canDelete?: boolean;
+		codeTypes?: Array<{ value: string; label: string }>;
 	}
 
 	let {
@@ -23,6 +25,7 @@
 		colorClass = "",
 		isEditing = false,
 		canDelete = false,
+		codeTypes = [{ value: "penal", label: "Penal Code" }],
 	}: Props = $props();
 
 	// Track which row is being edited (by code)
@@ -33,9 +36,12 @@
 		description: string;
 		fine: number;
 		time: number;
-	}>({ code: "", label: "", description: "", fine: 0, time: 0 });
+		codeType: string;
+		expandedDefinition: string;
+	}>({ code: "", label: "", description: "", fine: 0, time: 0, codeType: "penal", expandedDefinition: "" });
 	let isSaving = $state(false);
 	let pendingDelete = $state<Charge | null>(null);
+	let selectedCharge = $state<Charge | null>(null);
 
 	function startEdit(charge: Charge) {
 		editingCode = charge.code || null;
@@ -45,6 +51,8 @@
 			description: charge.description,
 			fine: getFineValue(charge),
 			time: getTimeValue(charge),
+			codeType: charge.codeType || "penal",
+			expandedDefinition: charge.expandedDefinition || "",
 		};
 	}
 
@@ -61,6 +69,8 @@
 		if (editValues.description !== charge.description) payload.description = editValues.description;
 		if (editValues.fine !== getFineValue(charge)) payload.fine = editValues.fine;
 		if (editValues.time !== getTimeValue(charge)) payload.time = editValues.time;
+		if (editValues.codeType !== (charge.codeType || "penal")) payload.codeType = editValues.codeType;
+		if (editValues.expandedDefinition !== (charge.expandedDefinition || "")) payload.expandedDefinition = editValues.expandedDefinition;
 
 		// Nothing changed
 		if (Object.keys(payload).length === 0) {
@@ -174,12 +184,12 @@
 								<span class="code-tag">{charge.code}</span>
 							</span>
 							<span class="col-label">
-								<input
-									type="text"
-									class="edit-input"
-									bind:value={editValues.label}
-									placeholder="Charge name"
-								/>
+								<input type="text" class="edit-input" bind:value={editValues.label} placeholder="Charge name" />
+							</span>
+							<span class="col-type">
+								<select class="edit-input" bind:value={editValues.codeType} aria-label="Code type">
+									{#each codeTypes as codeType}<option value={codeType.value}>{codeType.label}</option>{/each}
+								</select>
 							</span>
 							<span class="col-desc">
 								<input
@@ -188,6 +198,7 @@
 									bind:value={editValues.description}
 									placeholder="Description"
 								/>
+								<ChargeDefinitionEditor content={editValues.expandedDefinition} onUpdate={(value) => (editValues.expandedDefinition = value)} />
 							</span>
 							<span class="col-fine">
 								<input
@@ -227,18 +238,19 @@
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="charge-row"
-							class:clickable={isEditing}
+						class:clickable={true}
 							class:with-actions={isEditing || canDelete}
-							onclick={() => isEditing && startEdit(charge)}
+							onclick={() => isEditing ? startEdit(charge) : (selectedCharge = charge)}
 						>
 							<span class="col-code">
 								{#if charge.code}
+									<small class="code-type-label">{charge.codeTypeLabel || "P.C."}</small>
 									<span class="code-tag">{charge.code}</span>
 								{:else}
 									<span class="muted">-</span>
 								{/if}
 							</span>
-							<span class="col-label">{charge.label}</span>
+							<span class="col-label">{charge.label} <small class="code-type-label">({charge.codeTypeLabel || "Penal Code"})</small></span>
 							<span class="col-desc">{charge.description}</span>
 							<span class="col-fine">{formatFine(getFineValue(charge))}</span>
 							<span class="col-time">{formatTime(getTimeValue(charge))}</span>
@@ -269,6 +281,18 @@
 		{/each}
 	{/if}
 </div>
+
+{#if selectedCharge}
+	<div class="definition-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && (selectedCharge = null)}>
+		<div class="definition-modal" role="dialog" aria-modal="true">
+			<div class="definition-header"><strong>{selectedCharge.label}</strong><button onclick={() => (selectedCharge = null)} aria-label="Close">×</button></div>
+			<div class="definition-meta">{selectedCharge.code || "No code"} · {selectedCharge.codeTypeLabel || "Penal Code"}</div>
+			<div class="definition-body">
+				{#if selectedCharge.expandedDefinition}<div class="rich-definition">{@html selectedCharge.expandedDefinition}</div>{:else}<p>{selectedCharge.description || "No expanded definition provided."}</p>{/if}
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.charge-section {
@@ -407,7 +431,7 @@
 	.charge-row.editing {
 		background: rgba(var(--accent-rgb), 0.04);
 		border-bottom: 1px solid rgba(var(--accent-rgb), 0.08);
-		grid-template-columns: 80px 1.2fr 2fr 80px 60px auto;
+		grid-template-columns: 80px minmax(120px, 1.2fr) 110px minmax(140px, 2fr) 80px 60px auto;
 	}
 
 	.charge-row:last-child {
@@ -417,8 +441,18 @@
 	/* When editing or actions column visible, adjust grid */
 	.table-header:has(+ .charge-row.editing),
 	:global(.category-group:has(.charge-row.editing)) .table-header {
-		grid-template-columns: 80px 1.2fr 2fr 80px 60px auto;
+		grid-template-columns: 80px minmax(120px, 1.2fr) 110px minmax(140px, 2fr) 80px 60px auto;
 	}
+
+	.col-type { min-width: 0; }
+	.edit-definition { min-height: 58px; resize: vertical; }
+	.definition-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0,0,0,.65); }
+	.definition-modal { width: min(620px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; background: #171d29; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; color: rgba(255,255,255,.85); }
+	.definition-header { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.08); }
+	.definition-header button { border:0; background:transparent; color:inherit; font-size:20px; cursor:pointer; }
+	.definition-meta { padding:8px 14px; color:rgba(255,255,255,.4); font-size:10px; }
+	.definition-body { padding:14px; font-size:12px; line-height:1.55; }
+	.rich-definition :global(p) { margin: 0 0 8px; }
 
 	.col-label {
 		color: rgba(255, 255, 255, 0.8);
@@ -427,6 +461,13 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.code-type-label {
+		margin-left: 3px;
+		color: rgba(255, 255, 255, 0.38);
+		font-size: 9px;
+		font-weight: 400;
 	}
 
 	.col-desc {

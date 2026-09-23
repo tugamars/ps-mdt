@@ -332,6 +332,8 @@ export function createReportService() {
 			citizenid: c.citizenid || "",
 			suspectName: c.suspectName || c.suspect_name || "",
 			charge: c.charge || c.label || "",
+			codeType: c.codeType || c.code_type || "penal",
+			codeTypeLabel: c.codeTypeLabel || c.code_type_label || ({ penal: "Penal Code", ucmj: "UCMJ", traffic: "Traffic Code" } as Record<string, string>)[c.codeType || c.code_type || "penal"] || "Penal Code",
 			count: Number(c.count) || 1,
 			time: Number(c.time) || 0,
 			fine: Number(c.fine) || 0,

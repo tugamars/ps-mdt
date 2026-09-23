@@ -42,6 +42,8 @@
 		return penalCodes.filter(
 			(c) =>
 				(c.label || "").toLowerCase().includes(q) ||
+				(c.code || "").toLowerCase().includes(q) ||
+				(c.codeTypeLabel || "").toLowerCase().includes(q) ||
 				(c.description || "").toLowerCase().includes(q) ||
 				(c.category || "").toLowerCase().includes(q),
 		).slice(0, 20);
@@ -142,6 +144,8 @@
 			citizenid: selectedSuspect,
 			suspectName: suspect?.fullName || selectedSuspect,
 			charge: penal.label,
+			codeType: penal.codeType || "penal",
+			codeTypeLabel: penal.codeTypeLabel || "Penal Code",
 			count: 1,
 			time: penal.time || 0,
 			fine: penal.fine || 0,
@@ -190,6 +194,7 @@
 					<button class="picker-item" onclick={() => addChargeFromPenal(penal)}>
 						<div class="picker-item-top">
 							<span class="picker-label">{penal.label}</span>
+							<span class="picker-type">({penal.codeTypeLabel || "Penal Code"})</span>
 							<span class="picker-type type-{penal.type}">{penal.type}</span>
 						</div>
 						<div class="picker-item-bottom">
@@ -223,7 +228,7 @@
 					{#each suspectCharges as charge}
 						<div class="charge-item">
 							<div class="charge-info">
-								<span class="charge-label">{charge.charge}</span>
+								<span class="charge-label">{charge.charge} ({charge.codeTypeLabel || "Penal Code"})</span>
 								<div class="charge-values">
 									<span class="charge-time">{charge.time * charge.count}mo</span>
 									<span class="charge-fine">${(charge.fine * charge.count).toLocaleString()}</span>

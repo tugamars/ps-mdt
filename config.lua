@@ -1,6 +1,13 @@
 Config = {}
 ps = exports.ps_lib:init()
 
+-- Available legal code types shown when managing charges.
+Config.ChargeCodeTypes = {
+    { value = 'penal', label = 'P.C.' },
+    { value = 'ucmj', label = 'UCMJ' },
+    { value = 'traffic', label = 'T.C.' },
+}
+
 -- Basic Settings
 Config.Debug = false -- Enable/disable debug mode (boolean)
 Config.OnlyShowOnDuty = true -- Only allow the MDT to be opened when on duty (boolean)

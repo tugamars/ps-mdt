@@ -112,6 +112,7 @@ export const NUI_EVENTS = {
 	},
 	CHARGE: {
 		GET_CHARGES: "getCharges",
+		GET_CHARGE_CODE_TYPES: "getChargeCodeTypes",
 		ADD_CHARGE: "addCharge",
 		UPDATE_CHARGE: "updateCharge",
 		DELETE_CHARGE: "deleteCharge",

@@ -1,5 +1,21 @@
 local resourceName = tostring(GetCurrentResourceName())
 
+local function getCodeTypeLabel(value)
+    for _, item in ipairs((Config and Config.ChargeCodeTypes) or {}) do
+        if item.value == value then return item.label end
+    end
+    return 'Penal Code'
+end
+
+local function getCodeTypeCaseSql()
+    local cases = {}
+    for _, item in ipairs((Config and Config.ChargeCodeTypes) or {}) do
+        cases[#cases + 1] = "WHEN '" .. tostring(item.value):gsub("'", "''") .. "' THEN '" .. tostring(item.label):gsub("'", "''") .. "'"
+    end
+    cases[#cases + 1] = "ELSE 'Penal Code'"
+    return table.concat(cases, ' ')
+end
+
 local function getEffectiveJobType(src)
     local jobType = ps.getJobType(src)
     local jobName = ps.getJobName(src)
@@ -315,7 +331,7 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
     local job = ps.getJobName(src)
     local jobType = getEffectiveJobType(src)
 
-    local result = MySQL.query.await([[
+    local result = MySQL.query.await(([[
         SELECT
             mr.*,
             (SELECT JSON_ARRAYAGG(
@@ -336,6 +352,8 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
                 JSON_OBJECT(
                     'citizenid', mrc.citizenid,
                     'charge', mrc.charge,
+                    'codeType', (SELECT pc.code_type FROM mdt_penal_codes pc WHERE pc.label = mrc.charge LIMIT 1),
+                    'codeTypeLabel', CASE COALESCE((SELECT pc.code_type FROM mdt_penal_codes pc WHERE pc.label = mrc.charge LIMIT 1), 'penal') %s END,
                     'count', mrc.count,
                     'time', mrc.time,
                     'fine', mrc.fine
@@ -383,10 +401,21 @@ ps.registerCallback(resourceName..':server:getReport', function(source, reportid
             ) FROM mdt_report_vehicles mrv WHERE mrv.reportid = mr.id) as vehicles
         FROM mdt_reports mr
         WHERE mr.id = ?
-    ]], {reportid})
+    ]]):format(getCodeTypeCaseSql()), {reportid})
 
     local report = result[1] or nil
     if not report then return nil end
+
+    if type(report.charges) == 'string' then
+        local ok, decoded = pcall(json.decode, report.charges)
+        if ok and type(decoded) == 'table' then report.charges = decoded end
+    end
+    if type(report.charges) == 'table' then
+        for _, charge in ipairs(report.charges) do
+            local code = charge.codeType
+            charge.codeTypeLabel = getCodeTypeLabel(code)
+        end
+    end
 
     -- Post-process: resolve names and profile images for involved persons
     local enrichOk, enrichErr = pcall(function()

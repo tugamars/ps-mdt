@@ -1,17 +1,41 @@
 
 local resourceName = tostring(GetCurrentResourceName())
 
+local function getChargeCodeTypes()
+    local configured = Config and Config.ChargeCodeTypes
+    if type(configured) ~= 'table' or #configured == 0 then
+        return { { value = 'penal', label = 'Penal Code' } }
+    end
+    return configured
+end
+
+local function getCodeTypeLabel(value)
+    for _, item in ipairs(getChargeCodeTypes()) do
+        if item.value == value then return item.label end
+    end
+    return value == 'penal' and 'Penal Code' or value
+end
+
 ps.registerCallback('ps-mdt:getChargeList', function(source)
     -- Allow civilians to view charges (legislation) if civilian access is enabled
     local civAccess = Config.CivilianAccess
     if not CheckAuth(source) and not (civAccess and civAccess.enabled) then return {} end
 
-    local rows = MySQL.query.await([[
+    local codeTypeCases = {}
+    for _, item in ipairs(getChargeCodeTypes()) do
+        codeTypeCases[#codeTypeCases + 1] = "WHEN '" .. tostring(item.value):gsub("'", "''") .. "' THEN '" .. tostring(item.label):gsub("'", "''") .. "'"
+    end
+    codeTypeCases[#codeTypeCases + 1] = 'ELSE code_type'
+
+    local query = ([[
         SELECT
             code,
+            code_type AS codeType,
+            CASE code_type %s END AS codeTypeLabel,
             label,
             charge_class AS type,
             description,
+            expanded_definition AS expandedDefinition,
             months AS time,
             fine,
             CASE
@@ -21,13 +45,23 @@ ps.registerCallback('ps-mdt:getChargeList', function(source)
                 ELSE 'Uncategorized'
             END AS category
         FROM mdt_penal_codes
-        ORDER BY charge_class, label
-    ]], {})
+        ORDER BY code_type, charge_class, label
+    ]]):format(table.concat(codeTypeCases, ' '))
+    local rows = MySQL.query.await(query, {})
     ps.debug('[getChargeList] rows', rows and #rows or 0)
     if Config and Config.Debug and rows and rows[1] then
         ps.debug('[getChargeList] sample', rows[1])
     end
     return rows
+end)
+
+ps.registerCallback(resourceName .. ':server:getChargeCodeTypes', function(source)
+    if not CheckAuth(source) then return {} end
+    local result = {}
+    for _, item in ipairs(getChargeCodeTypes()) do
+        result[#result + 1] = { value = item.value, label = item.label }
+    end
+    return result
 end)
 
 -- Process a fine - deduct money from citizen's bank account
@@ -118,6 +152,20 @@ ps.registerCallback(resourceName .. ':server:updateCharge', function(source, pay
         penalUpdates[#penalUpdates + 1] = 'description = ?'
         penalValues[#penalValues + 1] = payload.description
     end
+    if payload.expandedDefinition ~= nil and type(payload.expandedDefinition) == 'string' then
+        penalUpdates[#penalUpdates + 1] = 'expanded_definition = ?'
+        penalValues[#penalValues + 1] = payload.expandedDefinition
+    end
+    if payload.codeType ~= nil then
+        local codeType = tostring(payload.codeType)
+        local valid = false
+        for _, item in ipairs(getChargeCodeTypes()) do
+            if item.value == codeType then valid = true break end
+        end
+        if not valid then return { success = false, message = 'Invalid code type' } end
+        penalUpdates[#penalUpdates + 1] = 'code_type = ?'
+        penalValues[#penalValues + 1] = codeType
+    end
 
     if #penalUpdates == 0 then
         return { success = true }
@@ -152,7 +200,9 @@ ps.registerCallback(resourceName .. ':server:addCharge', function(source, payloa
     local code = payload.code and tostring(payload.code):gsub('^%s*(.-)%s*$', '%1') or ''
     local label = payload.label and tostring(payload.label):gsub('^%s*(.-)%s*$', '%1') or ''
     local chargeClass = payload.type and tostring(payload.type):lower() or 'infraction'
+    local codeType = payload.codeType and tostring(payload.codeType) or 'penal'
     local description = payload.description and tostring(payload.description) or ''
+    local expandedDefinition = payload.expandedDefinition and tostring(payload.expandedDefinition) or ''
     local months = math.max(0, tonumber(payload.time) or 0)
     local fine = math.max(0, tonumber(payload.fine) or 0)
 
@@ -162,6 +212,11 @@ ps.registerCallback(resourceName .. ':server:addCharge', function(source, payloa
     if chargeClass ~= 'felony' and chargeClass ~= 'misdemeanor' and chargeClass ~= 'infraction' then
         return { success = false, message = 'Invalid charge type' }
     end
+    local validCodeType = false
+    for _, item in ipairs(getChargeCodeTypes()) do
+        if item.value == codeType then validCodeType = true break end
+    end
+    if not validCodeType then return { success = false, message = 'Invalid code type' } end
 
     local exists = MySQL.single.await('SELECT code FROM mdt_penal_codes WHERE code = ?', { code })
     if exists then
@@ -169,9 +224,9 @@ ps.registerCallback(resourceName .. ':server:addCharge', function(source, payloa
     end
 
     local inserted = MySQL.insert.await([[
-        INSERT INTO mdt_penal_codes (code, label, charge_class, description, months, fine)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ]], { code, label, chargeClass, description, months, fine })
+        INSERT INTO mdt_penal_codes (code, label, charge_class, description, expanded_definition, months, fine, code_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ]], { code, label, chargeClass, description, expandedDefinition, months, fine, codeType })
 
     if inserted and ps.auditLog then
         ps.auditLog(src, 'charge_created', 'charge', code, {
@@ -184,6 +239,9 @@ ps.registerCallback(resourceName .. ':server:addCharge', function(source, payloa
 
     return { success = inserted ~= nil, charge = {
         code = code,
+        codeType = codeType,
+        codeTypeLabel = getCodeTypeLabel(codeType),
+        expandedDefinition = expandedDefinition,
         label = label,
         type = chargeClass,
         description = description,

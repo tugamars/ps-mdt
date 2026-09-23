@@ -6,6 +6,11 @@ RegisterNUICallback('getCharges', function(data, cb)
     cb(callbacks)
 end)
 
+RegisterNUICallback('getChargeCodeTypes', function(_, cb)
+    if not MDTOpen then cb({}) return end
+    cb(ps.callback(resourceName .. ':server:getChargeCodeTypes') or {})
+end)
+
 RegisterNUICallback('processFine', function(data, cb)
     if not MDTOpen then
         cb({ success = false, message = 'MDT is not open' })
