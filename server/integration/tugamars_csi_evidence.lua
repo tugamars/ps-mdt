@@ -431,3 +431,38 @@ AddEventHandler('tugamars_csi:server:OnEvidenceCustodyUpdated', function(src, cs
     if not csiEvidenceId then return end
     updateMappedCustody(src, csiEvidenceId, custodyRows)
 end)
+
+AddEventHandler('tugamars_csi:server:OnProcessingComplete', function(src, processingRecordData, citizenid)
+    if type(processingRecordData) ~= 'table' then return end
+
+    local mugshotUrl = valueOrNil(processingRecordData.mugshotUrl)
+    if not mugshotUrl then return end
+
+    citizenid = valueOrNil(citizenid)
+    if not citizenid then
+        if ps and ps.warn then
+            ps.warn('[CSI Evidence] Processing completed with a mugshot URL but no citizen ID')
+        end
+        return
+    end
+
+    if not EnsureProfileExists(citizenid) then
+        if ps and ps.warn then
+            ps.warn(('[CSI Evidence] Failed to ensure MDT profile for processed citizen %s'):format(citizenid))
+        end
+        return
+    end
+
+    local profile = MySQL.single.await('SELECT id FROM mdt_profiles WHERE citizenid = ? LIMIT 1', { citizenid })
+    if not profile or not profile.id then
+        if ps and ps.warn then
+            ps.warn(('[CSI Evidence] MDT profile not found for processed citizen %s'):format(citizenid))
+        end
+        return
+    end
+
+    MySQL.update.await('UPDATE mdt_profiles SET profilepicture = ? WHERE citizenid = ?', { mugshotUrl, citizenid })
+    MySQL.insert.await('INSERT INTO mdt_profiles_gallery (profileId, image, label) VALUES (?, ?, ?)', {
+        profile.id, mugshotUrl, 'Mugshot'
+    })
+end)
