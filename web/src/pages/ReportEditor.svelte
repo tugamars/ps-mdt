@@ -677,6 +677,7 @@
 		}
 	}
 
+	// Keep suspect photo and fingerprint actions available for future UI re-enablement.
 	async function triggerSuspectMugshot(suspect: Report["involved"]["suspects"][number]) {
 		if (!suspect.citizenid) return;
 		try {
@@ -687,14 +688,9 @@
 			);
 			if (result.success) {
 				if (result.imageUrl) {
-					const suspectIndex = report.involved.suspects.findIndex(
-						(s) => s.citizenid === suspect.citizenid,
-					);
+					const suspectIndex = report.involved.suspects.findIndex((s) => s.citizenid === suspect.citizenid);
 					if (suspectIndex !== -1) {
-						report.involved.suspects[suspectIndex] = {
-							...report.involved.suspects[suspectIndex],
-							profileImage: result.imageUrl,
-						};
+						report.involved.suspects[suspectIndex] = { ...report.involved.suspects[suspectIndex], profileImage: result.imageUrl };
 						report = { ...report };
 					}
 				}
@@ -716,20 +712,13 @@
 				{ success: true, message: "Fingerprint scan initiated", fingerprint: "AB-1234-5678" },
 			);
 			if (result.success && result.fingerprint) {
-				// Fingerprint already on file
-				const suspectIndex = report.involved.suspects.findIndex(
-					(s) => s.citizenid === suspect.citizenid,
-				);
+				const suspectIndex = report.involved.suspects.findIndex((s) => s.citizenid === suspect.citizenid);
 				if (suspectIndex !== -1) {
-					report.involved.suspects[suspectIndex] = {
-						...report.involved.suspects[suspectIndex],
-						fingerprint: result.fingerprint,
-					};
+					report.involved.suspects[suspectIndex] = { ...report.involved.suspects[suspectIndex], fingerprint: result.fingerprint };
 					report = { ...report };
 				}
 				showStatus(`Fingerprint on file for ${suspect.fullName}: ${result.fingerprint}`);
 			} else if (result.success) {
-				// Scan was triggered on the suspect
 				showStatus(`Fingerprint scan initiated on ${suspect.fullName}`, "info");
 			} else {
 				showStatus(result.message || "Failed to get fingerprint", "error");
@@ -739,11 +728,9 @@
 		}
 	}
 
-	// Hidden file input ref for suspect photo upload
 	let photoUploadInput: HTMLInputElement | undefined = $state();
 	let photoUploadCitizenId: string = $state("");
 	let isUploadingPhoto: boolean = $state(false);
-	let isUploadingEvidence: boolean = $state(false);
 
 	function openPhotoUpload(suspect: Report["involved"]["suspects"][number]) {
 		if (!suspect.citizenid) return;
@@ -758,26 +745,17 @@
 
 		isUploadingPhoto = true;
 		showStatus("Uploading photo...");
-
 		try {
 			const base64 = await compressImage(file);
-
 			const result = await fetchNui<{ success: boolean; message?: string; imageUrl?: string }>(
 				NUI_EVENTS.CITIZEN.UPLOAD_SUSPECT_PHOTO,
 				{ citizenid: photoUploadCitizenId, image: base64 },
 				{ success: true, message: "Photo uploaded", imageUrl: base64 },
 			);
-
 			if (result.success) {
-				// Update suspect's profileImage in report so warning disappears
-				const suspectIndex = report.involved.suspects.findIndex(
-					(s) => s.citizenid === photoUploadCitizenId,
-				);
+				const suspectIndex = report.involved.suspects.findIndex((s) => s.citizenid === photoUploadCitizenId);
 				if (suspectIndex !== -1) {
-					report.involved.suspects[suspectIndex] = {
-						...report.involved.suspects[suspectIndex],
-						profileImage: result.imageUrl || base64,
-					};
+					report.involved.suspects[suspectIndex] = { ...report.involved.suspects[suspectIndex], profileImage: result.imageUrl || base64 };
 					report = { ...report };
 				}
 				showStatus(result.message || "Photo uploaded successfully");
@@ -788,11 +766,11 @@
 			showStatus("Failed to upload photo", "error");
 		} finally {
 			isUploadingPhoto = false;
+			input.value = "";
 		}
-
-		// Reset input so same file can be selected again
-		input.value = "";
 	}
+
+	let isUploadingEvidence: boolean = $state(false);
 
 	async function uploadImageHandler(file: File, evidenceId: string) {
 		if (isUploadingEvidence) return;
@@ -1145,7 +1123,7 @@
 	onClose={() => reportEditorUI.closeImageUpload()}
 />
 
-<!-- Hidden file input for suspect photo upload -->
+<!-- Hidden input retained for the suspect photo upload action. -->
 <input
 	type="file"
 	accept="image/*"
