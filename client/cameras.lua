@@ -5,6 +5,7 @@ local currentCamera = nil
 local isViewingCamera = false
 local hiddenCameraEntity = nil
 local currentCameraData = nil
+local hudWasVisible = true
 
 -- Forward declarations
 local startCameraControlThread
@@ -48,6 +49,12 @@ local function stopCameraView(notifyServer)
         end
 
         ClearTimecycleModifier()
+
+        if currentCameraData and currentCameraData.isBodycam then
+            DisplayHud(hudWasVisible)
+            DisplayRadar(hudWasVisible)
+            SendNUIMessage({ action = 'hideBodycamOverlay' })
+        end
 
         ps.debug('Clearing focus area')
         lib.hideTextUI();
@@ -179,6 +186,19 @@ RegisterNetEvent(resourceName..':client:startCameraView', function(cameraData)
         currentCamera = cam
         isViewingCamera = true
         currentCameraData = cameraData
+
+        if cameraData.isBodycam then
+            hudWasVisible = IsHudHidden() == false
+            DisplayHud(false)
+            DisplayRadar(false)
+            SendNUIMessage({
+                action = 'showBodycamOverlay',
+                data = {
+                    officer = cameraData.officer or {},
+                    startedAt = GetGameTimer()
+                }
+            })
+        end
 
         SetTimecycleModifier('scanline_cam_cheap')
         SetTimecycleModifierStrength(1.0)
@@ -322,6 +342,18 @@ startCameraControlThread = function()
 
     CreateThread(function()
         while isViewingCamera do
+            local isBodycam = currentCameraData and currentCameraData.isBodycam
+
+            -- Bodycam viewing is a passive feed: block every gameplay keybind,
+            -- including movement, combat, vehicle, and interaction controls.
+            -- Check the exit keys before disabling the controls so the viewer
+            -- can always leave the feed.
+            if isBodycam then
+                DisplayHud(false)
+                DisplayRadar(false)
+                HideHudAndRadarThisFrame()
+            end
+
             -- Update camera controls
             updateCameraControls()
 
@@ -332,6 +364,11 @@ startCameraControlThread = function()
             end
 
             -- Disable player controls while viewing camera
+            if isBodycam then
+                DisableAllControlActions(0)
+                DisableAllControlActions(1)
+                DisableAllControlActions(2)
+            end
             DisablePlayerFiring(PlayerPedId(), true)
             DisableControlAction(0, 1, true) -- LookLeftRight
             DisableControlAction(0, 2, true) -- LookUpDown
