@@ -195,7 +195,12 @@ ps.registerCallback(resourceName .. ':server:viewBodycam', function(source, body
         rotation = vector3(0.0, 0.0, heading),
         networkId = nil, -- No entity to hide for bodycams
         isBodycam = true,
-        targetSource = targetSource
+        targetSource = targetSource,
+        officer = {
+            name = bodycamData.officerName,
+            callsign = bodycamData.callsign,
+            rank = bodycamData.rank
+        }
     })
 
     -- Track this viewer
