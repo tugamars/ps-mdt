@@ -1,5 +1,7 @@
 import { writable } from "svelte/store";
 
+export const pendingWarrantRequest = writable<Record<string, unknown> | null>(null);
+
 // Pending BOLO ID to open on the BOLOs page
 const pendingBoloId = writable<number | null>(null);
 

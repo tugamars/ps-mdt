@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { pendingWarrantRequest } from "../stores/navigationStore";
 	import { fetchNui } from "../utils/fetchNui";
 	import { isEnvBrowser } from "../utils/misc";
 	import { NUI_EVENTS } from "../constants/nuiEvents";
@@ -18,6 +19,13 @@
 	let filtered = $derived(warrants.filter(w => { const q=searchQuery.trim().toLowerCase(); return !q || [w.citizen_name,w.target_text,w.citizenid,w.linked_report_id,w.warrant_type].some(v=>String(v||"").toLowerCase().includes(q)); }));
 	let chargeResults = $derived.by(() => { const q=chargeQuery.trim().toLowerCase(); if(!q) return []; const selected = new Set(selectedCharges.map(c=>c.label)); return allCharges.filter(c => !selected.has(c.label) && [c.label,c.code,c.category,c.description].some(v=>String(v||"").toLowerCase().includes(q))).slice(0,8); });
 	const target = (w:Warrant) => w.warrant_type === "search" ? w.target_text : w.citizen_name;
+	$effect(() => {
+		if ($pendingWarrantRequest) {
+			const request = $pendingWarrantRequest;
+			selectedWarrant = { ...request, charges: parseCharges(request.charges) } as unknown as Warrant;
+			pendingWarrantRequest.set(null);
+		}
+	});
 	const typeLabel = (type:string) => type.charAt(0).toUpperCase() + type.slice(1);
 	const formatDate = (value?:string) => value ? new Date(value).toLocaleString() : "—";
 	function parseCharges(v:unknown):string[] { try { return typeof v === "string" ? JSON.parse(v) : Array.isArray(v) ? v as string[] : []; } catch { return []; } }
