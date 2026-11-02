@@ -3,6 +3,7 @@
 	import MDT from "./pages/MDT.svelte";
 	import MugshotCamera from "./components/MugshotCamera.svelte";
 	import ComplaintForm from "./pages/ComplaintForm.svelte";
+	import BodycamOverlay from "./components/BodycamOverlay.svelte";
 	import { SvelteQueryDevtools } from "@tanstack/svelte-query-devtools";
 	import { QueryClientProvider } from "@tanstack/svelte-query";
 	import { queryClient } from "./utils/query-client";
@@ -40,6 +41,7 @@
 		<MDT />
 	</VisibilityProvider>
 	<MugshotCamera />
+	<BodycamOverlay />
 	<ComplaintForm show={showComplaintForm} onClose={() => { showComplaintForm = false; }} />
 	<SvelteQueryDevtools />
 </QueryClientProvider>
