@@ -24,6 +24,8 @@ export type ModuleOptionSource =
 
 export interface ModuleApiContext {
 	moduleTabs?: ModuleTab[];
+	openReport?: (id: number) => void;
+	openWarrant?: (warrant: Record<string, unknown>) => void;
 }
 
 export interface ModuleSearchOptions {
@@ -94,6 +96,8 @@ export interface ModuleApiUi extends ModuleUiApi {
 }
 
 export interface ModuleApi {
+	openReport(id: number): void;
+	openWarrant(warrant: Record<string, unknown>): void;
 	hasPermission(permission: string): boolean;
 	fetchNui<T = unknown>(callback: string, data?: unknown): Promise<T>;
 	notify(text: string, type?: "success" | "error" | "info"): void;
@@ -214,6 +218,8 @@ export function createModuleApi(
 	});
 
 	const api: ModuleApi = {
+		openReport(id) { context.openReport?.(id); },
+		openWarrant(warrant) { context.openWarrant?.(warrant); },
 		hasPermission(permission: string) {
 			return authService.hasPermission(permission);
 		},

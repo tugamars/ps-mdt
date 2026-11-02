@@ -4,6 +4,14 @@
     import ModuleComponentHost from "./ModuleComponentHost.svelte";
     import { createModuleApi } from "../services/moduleApi";
     import type { AuthService } from "../services/authService.svelte";
+    import { openReportInEditor } from "../stores/reportsStore";
+    import { pendingWarrantRequest } from "../stores/navigationStore";
+
+    function navigate(name: string) {
+        tabService.setActiveTab(name);
+        const active = tabService.getActiveInstance();
+        if (active) tabService.setInstanceTab(active.id, name);
+    }
 
     interface Props {
         tabService: ReturnType<typeof createTabService>;
@@ -17,7 +25,11 @@
     let module = $derived(moduleService.getTabByName(activeTab));
     let moduleApi = $derived(
         module
-            ? createModuleApi(module.moduleId, authService, { moduleTabs: moduleService.moduleTabs })
+            ? createModuleApi(module.moduleId, authService, {
+                moduleTabs: moduleService.moduleTabs,
+                openReport: (id) => { openReportInEditor(String(id)); navigate('Reports'); },
+                openWarrant: (warrant) => { pendingWarrantRequest.set(warrant); navigate('Warrants'); },
+            })
             : null,
     );
 
