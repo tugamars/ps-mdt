@@ -1,5 +1,133 @@
 local resourceName = tostring(GetCurrentResourceName())
 local config = InvestigationsModule
+
+local portSubscribers, portPrevious, portLastRead = {}, {}, {}
+local function portAllowed(src)
+    if not CheckAuth(src, true) or not MDT.HasPermission(src, config.ViewPermission) then return false end
+    local jobType, jobName = ps.getJobType(src), ps.getJobName(src)
+    if jobType == Config.PoliceJobType or jobType == Config.DojJobType then return true end
+    for _, dojJob in ipairs(Config.DojJobs or {}) do
+        if jobName == dojJob then return true end
+    end
+    return false
+end
+local function portSnapshot()
+    local citizens, ids, marks = {}, {}, {}
+    for _, src in pairs(ps.getAllPlayers() or {}) do
+        local ok, player = pcall(ps.getPlayer, src)
+        local data = ok and player and player.PlayerData
+        if data and data.citizenid then
+            local cid = tostring(data.citizenid)
+            if not citizens[cid] then
+                local info = data.charinfo or {}
+                citizens[cid] = { citizenid = cid, name = (info.firstname or '') .. ' ' .. (info.lastname or ''), source = tonumber(src) }
+                ids[#ids + 1], marks[#marks + 1] = cid, '?'
+            end
+        end
+    end
+    local items, wanted = {}, {}
+    if #ids == 0 then return items, wanted end
+    local placeholders = table.concat(marks, ',')
+    local warrants = MySQL.query.await(('SELECT DISTINCT citizenid FROM mdt_reports_warrants WHERE expirydate >= NOW() AND citizenid IN (%s)'):format(placeholders), ids)
+    local bolos = MySQL.query.await(("SELECT DISTINCT subject_id FROM mdt_bolos WHERE type = 'citizen' AND status = 'active' AND subject_id IN (%s)"):format(placeholders), ids)
+    -- Match the citizen list/profile: prefer the MDT photo, then the framework photo.
+    local players = TableMap.Players
+    local profiles = MySQL.query.await(([[
+        SELECT %s AS citizenid,
+            COALESCE(NULLIF(mp.profilepicture, ''), %s) AS image
+        FROM %s AS %s
+        LEFT JOIN mdt_profiles AS mp ON %s
+        WHERE %s IN (%s)
+    ]]):format(players.fields.citizenid, players.fields.profilePic,
+        players.table, players.alias, TableMap.joinCondition('mp'),
+        players.fields.citizenid, placeholders), ids)
+    for _, row in ipairs(profiles or {}) do
+        local citizen = citizens[tostring(row.citizenid)]
+        if citizen then citizen.image = row.image end
+    end
+    local requests = MySQL.query.await(([[SELECT id, warrant_type, citizenid, citizen_name, target_text, requesting_officer,
+        officer_name, charges, reason, linked_report_id, status, reviewer_name, review_reason, reviewed_at, created_at
+        FROM mdt_warrant_requests WHERE status = 'approved' AND citizenid IN (%s) ORDER BY created_at DESC]]):format(placeholders), ids)
+    for _, row in ipairs(requests or {}) do
+        local citizen = citizens[tostring(row.citizenid)]
+        if citizen then
+            citizen.warrant = true
+            citizen.warrants = citizen.warrants or {}
+            local ok, charges = pcall(json.decode, row.charges or '[]')
+            row.charges = ok and type(charges) == 'table' and charges or {}
+            citizen.warrants[#citizen.warrants + 1] = row
+        end
+    end
+    for _, row in ipairs(warrants or {}) do
+        local citizen = citizens[tostring(row.citizenid)]
+        if citizen then citizen.warrant = true end
+    end
+    for _, row in ipairs(bolos or {}) do
+        local citizen = citizens[tostring(row.subject_id)]
+        if citizen then citizen.bolo = true end
+    end
+    for cid, citizen in pairs(citizens) do
+        wanted[cid] = citizen.source
+        if citizen.warrant or citizen.bolo then
+            items[#items + 1] = citizen
+        end
+    end
+    table.sort(items, function(a, b)
+        if a.name == b.name then return a.citizenid < b.citizenid end
+        return a.name < b.name
+    end)
+    return items, wanted
+end
+ps.registerCallback(resourceName .. ':server:investigationsModule:getPortAuthority', function(src)
+    if not portAllowed(src) then return { success = false, message = 'Access denied' } end
+    local now = GetGameTimer()
+    if portLastRead[src] and now - portLastRead[src] < 2000 then return { success = false, message = 'Please wait before refreshing.' } end
+    portLastRead[src] = now
+    local ok, items = pcall(portSnapshot)
+    if not ok then return { success = false, message = 'Unable to load Port Authority information.' } end
+    return { success = true, items = items, subscribed = portSubscribers[src] ~= nil }
+end)
+ps.registerCallback(resourceName .. ':server:investigationsModule:togglePortAlerts', function(src, data)
+    if not portAllowed(src) then return { success = false, message = 'Access denied' } end
+    if type(data) ~= 'table' or type(data.enabled) ~= 'boolean' then return { success = false, message = 'Invalid alert setting' } end
+    portSubscribers[src] = data.enabled and tostring(ps.getIdentifier(src)) or nil
+    return { success = true, subscribed = portSubscribers[src] ~= nil }
+end)
+local function clearPortSession(src)
+    src = tonumber(src)
+    if not src then return end
+    portSubscribers[src], portLastRead[src] = nil, nil
+    for cid, playerSource in pairs(portPrevious) do
+        if playerSource == src then portPrevious[cid] = nil end
+    end
+end
+AddEventHandler('ps-lib:character:unloaded', clearPortSession)
+AddEventHandler('playerDropped', function() clearPortSession(source) end)
+CreateThread(function()
+    Wait(1000)
+    local ok, _, wanted = pcall(portSnapshot)
+    if ok then portPrevious = wanted end
+    while true do
+        Wait(15 * 60 * 1000)
+        local success, items, current = pcall(portSnapshot)
+        if success then
+            local arrivals = {}
+            for _, citizen in ipairs(items) do
+                if not portPrevious[citizen.citizenid] then arrivals[#arrivals + 1] = citizen.name .. ' (' .. citizen.citizenid .. ')' end
+            end
+            portPrevious = current
+            for src, cid in pairs(portSubscribers) do
+                local valid, allowed = pcall(function()
+                    return GetPlayerName(src) and portAllowed(src) and tostring(ps.getIdentifier(src)) == cid
+                end)
+                if not valid or not allowed then portSubscribers[src] = nil
+                elseif #arrivals > 0 then
+                    MDT.Notify(src, 'Port Authority: ' .. #arrivals .. ' wanted citizen(s) newly In State. ' .. table.concat(arrivals, ', '):sub(1, 350), 'info')
+                end
+            end
+        end
+    end
+end)
 local manifestPath = 'modules/investigations-module/manifest.json'
 local manifestJson = LoadResourceFile(resourceName, manifestPath)
 

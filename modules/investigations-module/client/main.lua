@@ -1,6 +1,13 @@
 local resourceName = tostring(GetCurrentResourceName())
 local config = InvestigationsModule
 
+MDT.RegisterNUICallback(config.ModuleId, 'getPortAuthority', function()
+    return ps.callback(resourceName .. ':server:investigationsModule:getPortAuthority')
+end)
+MDT.RegisterNUICallback(config.ModuleId, 'togglePortAlerts', function(data)
+    return ps.callback(resourceName .. ':server:investigationsModule:togglePortAlerts', data)
+end)
+
 local function dependencyStarted()
     return GetResourceState(config.Dependency) == 'started'
 end
